@@ -27,6 +27,9 @@
               rust-analyzer
               rust-bin.stable.latest.default
             ];
+            shellHook = ''
+              export DATABASE_URL="postgres://postgres:postgres@localhost:5432/habits_axum"
+            '';
           };
         }
     );
