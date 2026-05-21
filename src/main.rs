@@ -1,25 +1,13 @@
-use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
-    routing::{get, post},
-};
-use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
+mod users;
+
+use axum::Router;
+use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
+use axum::routing::{get, post};
+use sqlx::postgres::PgPoolOptions;
 use std::env;
 
-#[derive(Deserialize)]
-struct UserPayload {
-    name: String,
-    email: String,
-}
-
-#[derive(Serialize, FromRow)]
-struct User {
-    id: i32,
-    name: String,
-    email: String,
-}
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 
 #[tokio::main]
 async fn main() {
@@ -28,97 +16,30 @@ async fn main() {
         .connect(&db_url)
         .await
         .expect("Failed to connect to DB");
+
+    tracing_subscriber::fmt::init();
+
     sqlx::migrate!()
         .run(&pool)
         .await
         .expect("Migrations failed");
 
+    let cors = CorsLayer::new()
+        .allow_origin("http://habits.lcl:3000".parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([CONTENT_TYPE])
+        .allow_credentials(true);
+
     let app = Router::new()
-        .route("/", get(root))
-        .route("/users", post(create_user).get(list_users))
-        .route(
-            "/users/{id}",
-            get(get_user).put(update_user).delete(delete_user),
-        )
+        .route("/sessions", post(users::create))
+        .route("/sessions/current", get(users::current))
+        .route("/users", post(users::register))
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
         .with_state(pool);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("🐗 Server running on port 3000");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
+    println!("🐗 Listening on {}", listener.local_addr().unwrap());
+
     axum::serve(listener, app).await.unwrap();
-}
-
-//Endpoint Handlers
-//test endpoint
-async fn root() -> &'static str {
-    "Welcome to the User Management API!"
-}
-
-//GET ALL
-async fn list_users(State(pool): State<PgPool>) -> Result<Json<Vec<User>>, StatusCode> {
-    sqlx::query_as::<_, User>("SELECT * FROM users")
-        .fetch_all(&pool)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-//CREATE USER
-async fn create_user(
-    State(pool): State<PgPool>,
-    Json(payload): Json<UserPayload>,
-) -> Result<(StatusCode, Json<User>), StatusCode> {
-    sqlx::query_as::<_, User>("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *")
-        .bind(payload.name)
-        .bind(payload.email)
-        .fetch_one(&pool)
-        .await
-        .map(|u| (StatusCode::CREATED, Json(u)))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-//GET USER BY ID
-async fn get_user(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-) -> Result<Json<User>, StatusCode> {
-    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::NOT_FOUND)
-}
-
-//UPDATE USER
-async fn update_user(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-    Json(payload): Json<UserPayload>,
-) -> Result<Json<User>, StatusCode> {
-    sqlx::query_as::<_, User>("UPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *")
-        .bind(payload.name)
-        .bind(payload.email)
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-//DELETE USER
-async fn delete_user(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-) -> Result<StatusCode, StatusCode> {
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
-        .bind(id)
-        .execute(&pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if result.rows_affected() == 0 {
-        Err(StatusCode::NOT_FOUND)
-    } else {
-        Ok(StatusCode::NO_CONTENT)
-    }
 }

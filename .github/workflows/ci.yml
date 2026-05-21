@@ -20,6 +20,6 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/habits_axum
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: cargo build --verbose
       - run: cargo test --verbose
