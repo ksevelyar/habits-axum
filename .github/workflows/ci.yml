@@ -1,0 +1,25 @@
+name: Cargo Build & Test
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:latest
+        ports: ['5432:5432']
+        env:
+          POSTGRES_DB: habits_axum
+          POSTGRES_PASSWORD: postgres
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/habits_axum
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --verbose
+      - run: cargo test --verbose
