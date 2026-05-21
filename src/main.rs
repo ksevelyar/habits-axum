@@ -1,6 +1,11 @@
-use axum::{ extract::{ Path, State }, http::StatusCode, routing::{ get, post }, Json, Router };
-use serde::{ Deserialize, Serialize };
-use sqlx::{ postgres::PgPoolOptions, FromRow, PgPool };
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{get, post},
+};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use std::env;
 
 #[derive(Deserialize)]
@@ -19,13 +24,22 @@ struct User {
 #[tokio::main]
 async fn main() {
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = PgPoolOptions::new().connect(&db_url).await.expect("Failed to connect to DB");
-    sqlx::migrate!().run(&pool).await.expect("Migrations failed");
+    let pool = PgPoolOptions::new()
+        .connect(&db_url)
+        .await
+        .expect("Failed to connect to DB");
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("Migrations failed");
 
     let app = Router::new()
         .route("/", get(root))
         .route("/users", post(create_user).get(list_users))
-        .route("/users/{id}", get(get_user).put(update_user).delete(delete_user))
+        .route(
+            "/users/{id}",
+            get(get_user).put(update_user).delete(delete_user),
+        )
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -42,7 +56,8 @@ async fn root() -> &'static str {
 //GET ALL
 async fn list_users(State(pool): State<PgPool>) -> Result<Json<Vec<User>>, StatusCode> {
     sqlx::query_as::<_, User>("SELECT * FROM users")
-        .fetch_all(&pool).await
+        .fetch_all(&pool)
+        .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -50,12 +65,13 @@ async fn list_users(State(pool): State<PgPool>) -> Result<Json<Vec<User>>, Statu
 //CREATE USER
 async fn create_user(
     State(pool): State<PgPool>,
-    Json(payload): Json<UserPayload>
-    ) -> Result<(StatusCode, Json<User>), StatusCode> {
+    Json(payload): Json<UserPayload>,
+) -> Result<(StatusCode, Json<User>), StatusCode> {
     sqlx::query_as::<_, User>("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *")
         .bind(payload.name)
         .bind(payload.email)
-        .fetch_one(&pool).await
+        .fetch_one(&pool)
+        .await
         .map(|u| (StatusCode::CREATED, Json(u)))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -63,11 +79,12 @@ async fn create_user(
 //GET USER BY ID
 async fn get_user(
     State(pool): State<PgPool>,
-    Path(id): Path<i32>
-    ) -> Result<Json<User>, StatusCode> {
+    Path(id): Path<i32>,
+) -> Result<Json<User>, StatusCode> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(id)
-        .fetch_one(&pool).await
+        .fetch_one(&pool)
+        .await
         .map(Json)
         .map_err(|_| StatusCode::NOT_FOUND)
 }
@@ -76,13 +93,14 @@ async fn get_user(
 async fn update_user(
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
-    Json(payload): Json<UserPayload>
-    ) -> Result<Json<User>, StatusCode> {
+    Json(payload): Json<UserPayload>,
+) -> Result<Json<User>, StatusCode> {
     sqlx::query_as::<_, User>("UPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *")
         .bind(payload.name)
         .bind(payload.email)
         .bind(id)
-        .fetch_one(&pool).await
+        .fetch_one(&pool)
+        .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -90,12 +108,12 @@ async fn update_user(
 //DELETE USER
 async fn delete_user(
     State(pool): State<PgPool>,
-    Path(id): Path<i32>
+    Path(id): Path<i32>,
 ) -> Result<StatusCode, StatusCode> {
-    let result = sqlx
-        ::query("DELETE FROM users WHERE id = $1")
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(id)
-        .execute(&pool).await
+        .execute(&pool)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if result.rows_affected() == 0 {
