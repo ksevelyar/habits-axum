@@ -25,11 +25,13 @@
               cargo-watch
               pkg-config
               rust-analyzer
-              rust-bin.stable.latest.default
+              (rust-bin.stable.latest.default.override {
+                extensions = ["rust-src"];
+              })
             ];
-            shellHook = ''
-              export DATABASE_URL="postgres://postgres:postgres@localhost:5432/habits_axum"
-            '';
+            DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
+            RUST_LOG = "tower_http=debug";
+            JWT_SECRET = "very secret";
           };
         }
     );
