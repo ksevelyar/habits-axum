@@ -1,8 +1,10 @@
+mod chains;
+mod metrics;
 mod users;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
@@ -26,7 +28,7 @@ async fn main() {
 
     let cors = CorsLayer::new()
         .allow_origin("http://habits.lcl:3000".parse::<HeaderValue>().unwrap())
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([CONTENT_TYPE])
         .allow_credentials(true);
 
@@ -34,6 +36,15 @@ async fn main() {
         .route("/sessions", post(users::create))
         .route("/sessions/current", get(users::current))
         .route("/users", post(users::register))
+        .route("/chains", get(chains::list))
+        .route("/chains", post(chains::create))
+        .route("/chains/{chain_id}", patch(chains::update))
+        .route("/chains/{chain_id}", delete(chains::delete))
+        .route("/chains/{chain_id}", get(chains::show))
+        .route("/metrics", post(metrics::upsert))
+        .route("/metrics", get(metrics::get_by_date))
+        .route("/metrics_history", get(metrics::history))
+        .route("/metrics/{metric_id}", delete(metrics::delete))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(pool);

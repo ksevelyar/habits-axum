@@ -9,14 +9,14 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     pub exp: usize,
     pub email: String,
 }
 
 #[derive(Deserialize)]
-pub struct SignInData {
+pub struct CreateSessionRequest {
     pub email: String,
     pub password: String,
 }
@@ -25,7 +25,10 @@ pub async fn current(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
 ) -> Result<Json<CurrentUser>, StatusCode> {
-    let jwt = cookie_jar.get("jwt").ok_or(StatusCode::UNAUTHORIZED)?;
+    let jwt = cookie_jar
+        .get("jwt")
+        .ok_or(StatusCode::UNAUTHORIZED)?
+        .value();
 
     let claims = decode_jwt(jwt.to_string()).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
@@ -39,7 +42,7 @@ pub async fn current(
 pub async fn create(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-    Json(user_data): Json<SignInData>,
+    Json(user_data): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
     let user = find_user(&pool, &user_data.email)
         .await
@@ -61,6 +64,7 @@ pub async fn create(
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CurrentUser {
+    pub id: i64,
     pub email: String,
     pub password_hash: String,
 }
@@ -114,7 +118,8 @@ pub struct RegisterData {
     pub password: String,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+// FIXME: merge with CurrentUser
+#[derive(Serialize, sqlx::FromRow, Debug)]
 pub struct User {
     pub id: i64,
     pub email: String,
