@@ -21,5 +21,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      - run: cargo build --verbose
-      - run: cargo test --verbose
+      
+      - uses: cachix/install-nix-action@v27
+      
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/habits_axum
+        run: nix develop -c sqlx migrate run
+      
+      - name: Build
+        run: nix develop -c cargo build --verbose
+      
+      - name: Test
+        run: nix develop -c cargo test --verbose

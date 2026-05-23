@@ -24,6 +24,7 @@
             buildInputs = [
               cargo-watch
               pkg-config
+              sqlx-cli
               rust-analyzer
               (rust-bin.stable.latest.default.override {
                 extensions = ["rust-src"];

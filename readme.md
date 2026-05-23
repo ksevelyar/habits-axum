@@ -3,7 +3,7 @@
 ## Run
 ```
 nix develop
-cargo run
+cargo watch -x run
 ```
 
 ## Database
