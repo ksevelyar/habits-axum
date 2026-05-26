@@ -1,5 +1,6 @@
 mod chains;
 mod metrics;
+mod tasks;
 mod users;
 
 use axum::Router;
@@ -41,6 +42,11 @@ async fn main() {
         .route("/chains/{chain_id}", patch(chains::update))
         .route("/chains/{chain_id}", delete(chains::delete))
         .route("/chains/{chain_id}", get(chains::show))
+        .route("/tasks", get(tasks::list))
+        .route("/tasks", post(tasks::create))
+        .route("/tasks/{task_id}", patch(tasks::update))
+        .route("/tasks/{task_id}", delete(tasks::delete))
+        .route("/tasks/{task_id}", get(tasks::show))
         .route("/metrics", post(metrics::upsert))
         .route("/metrics", get(metrics::get_by_date))
         .route("/metrics_history", get(metrics::history))
