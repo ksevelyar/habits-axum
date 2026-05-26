@@ -215,7 +215,10 @@ pub async fn get_by_date(
     .bind(current_user.id)
     .fetch_all(&pool)
     .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    .map_err(|err| {
+        dbg!(err);
+        StatusCode::BAD_REQUEST
+    })?;
 
     Ok(Json(rows))
 }
