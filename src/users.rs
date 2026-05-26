@@ -110,7 +110,9 @@ pub fn build_cookie<'a>(key: &str, token: String, duration_hrs: i64) -> Cookie<'
         .build()
 }
 
-use bcrypt::{DEFAULT_COST, hash};
+pub fn hash(input: &str) -> Result<String, bcrypt::BcryptError> {
+    bcrypt::hash(input, bcrypt::DEFAULT_COST)
+}
 
 #[derive(Deserialize)]
 pub struct RegisterData {
@@ -130,7 +132,7 @@ pub async fn register(
     Json(user_data): Json<RegisterData>,
 ) -> Result<(StatusCode, Json<User>), StatusCode> {
     let hashed_password =
-        hash(&user_data.password, DEFAULT_COST).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        hash(&user_data.password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let user = sqlx::query_as::<_, User>(
         "
