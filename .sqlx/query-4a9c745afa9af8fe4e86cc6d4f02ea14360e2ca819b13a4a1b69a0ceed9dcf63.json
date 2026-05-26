@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT type as \"type: ChainType\"\n        FROM chains\n        WHERE id = $1\n          AND user_id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type: ChainType",
+        "type_info": {
+          "Custom": {
+            "name": "chain_type",
+            "kind": {
+              "Enum": [
+                "integer",
+                "float",
+                "boolean"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4a9c745afa9af8fe4e86cc6d4f02ea14360e2ca819b13a4a1b69a0ceed9dcf63"
+}

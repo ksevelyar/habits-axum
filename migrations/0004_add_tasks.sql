@@ -1,4 +1,4 @@
-CREATE TABLE tasks (
+CREATE TABLE IF NOT EXISTS tasks (
     id BIGSERIAL PRIMARY KEY,
 
     name VARCHAR(255) NOT NULL,
@@ -13,4 +13,4 @@ CREATE TABLE tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_tasks_user_id ON tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);

@@ -20,6 +20,15 @@
         };
       in
         with pkgs; {
+          packages.default = pkgs.rustPlatform.buildRustPackage {
+            pname = "habits-axum";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+
+            SQLX_OFFLINE = "true";
+          };
+
           devShells.default = mkShell {
             buildInputs = [
               cargo-watch

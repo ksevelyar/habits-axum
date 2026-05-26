@@ -10,3 +10,8 @@ cargo watch -x run
 ```
 psql -U postgres -c "CREATE DATABASE habits_axum;"
 ```
+
+regenerate sqlx cache:
+```
+cargo sqlx prepare
+```

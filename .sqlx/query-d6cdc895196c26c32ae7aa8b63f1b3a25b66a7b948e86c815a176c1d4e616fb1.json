@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id,\n            name,\n            type::text AS \"type!\",\n            aggregate::text AS \"aggregate!\"\n        FROM chains\n        WHERE user_id = $1\n          AND active = true\n        ORDER BY \"order\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "aggregate!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "d6cdc895196c26c32ae7aa8b63f1b3a25b66a7b948e86c815a176c1d4e616fb1"
+}
