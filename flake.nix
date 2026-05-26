@@ -40,6 +40,7 @@
               })
             ];
             DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
+            ORIGIN = "http://habits.lcl:3000";
             RUST_LOG = "tower_http=debug";
             JWT_SECRET = "very secret";
           };

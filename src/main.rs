@@ -28,7 +28,7 @@ async fn main() {
         .expect("Migrations failed");
 
     let cors = CorsLayer::new()
-        .allow_origin("http://habits.lcl:3000".parse::<HeaderValue>().unwrap())
+        .allow_origin(std::env::var("ORIGIN").unwrap().parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([CONTENT_TYPE])
         .allow_credentials(true);
