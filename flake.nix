@@ -32,12 +32,20 @@
           devShells.default = mkShell {
             buildInputs = [
               cargo-watch
-              pkg-config
+              websocat
               sqlx-cli
               rust-analyzer
               (rust-bin.stable.latest.default.override {
                 extensions = ["rust-src"];
               })
+              (writeShellScriptBin "ci" ''
+                set -euo pipefail
+                sqlx migrate run
+                cargo build
+                cargo fmt --all -- --check --color always
+                cargo clippy --all-features --workspace -- -D warnings
+                cargo test
+              '')
             ];
             DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
             ORIGIN = "http://habits.lcl:3000";

@@ -2,6 +2,7 @@ name: Cargo Build & Test
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 env:
@@ -31,6 +32,12 @@ jobs:
  
       - name: Build
         run: nix develop -c cargo build --verbose
+
+      - name: Format check
+        run: nix develop --command cargo fmt --all -- --check --color always
+
+      - name: Clippy
+        run: nix develop --command cargo clippy --all-features --workspace -- -D warnings
 
       - name: Test
         run: nix develop -c cargo test --verbose

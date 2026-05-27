@@ -5,11 +5,13 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{PgPool, Type};
 
-use crate::users::{User, decode_jwt};
+use crate::error::{AppError, FieldError};
+use crate::users::authenticate_user;
 
-#[derive(Debug, Clone, Copy, Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "chain_type", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ChainType {
@@ -18,7 +20,7 @@ pub enum ChainType {
     Boolean,
 }
 
-#[derive(Debug, Clone, Copy, Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "chain_aggregate", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ChainAggregate {
@@ -27,21 +29,23 @@ pub enum ChainAggregate {
 }
 
 #[derive(Deserialize)]
-pub struct CreateChainData {
-    pub name: String,
-    pub r#type: ChainType,
+pub struct CreateChainPayload {
+    pub active: bool,
     pub aggregate: ChainAggregate,
     pub description: Option<String>,
+    pub name: String,
     pub order: Option<i32>,
+    pub r#type: ChainType,
 }
 
 #[derive(Deserialize)]
-pub struct UpdateChainRequest {
-    pub name: Option<String>,
-    pub r#type: Option<ChainType>,
+pub struct UpdateChainPayload {
+    pub active: Option<bool>,
     pub aggregate: Option<ChainAggregate>,
     pub description: Option<String>,
+    pub name: Option<String>,
     pub order: Option<i32>,
+    pub r#type: Option<ChainType>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -64,8 +68,8 @@ pub struct Chain {
 pub async fn list(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-) -> Result<Json<Vec<Chain>>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Vec<Chain>>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let chains = sqlx::query_as::<_, Chain>(
         r#"
@@ -80,7 +84,7 @@ pub async fn list(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(chains))
@@ -89,25 +93,34 @@ pub async fn list(
 pub async fn create(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-    Json(data): Json<CreateChainData>,
-) -> Result<(StatusCode, Json<Chain>), StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+    Json(body): Json<Value>,
+) -> Result<(StatusCode, Json<Chain>), AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+
+    let data: CreateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
+        AppError::Validation(vec![FieldError {
+            field: err.path().to_string(),
+            message: err.to_string(),
+        }])
+    })?;
 
     let chain = sqlx::query_as::<_, Chain>(
         r#"
         INSERT INTO chains (
             user_id,
+            active,
             name,
             type,
             aggregate,
             description,
             "order"
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         "#,
     )
     .bind(current_user.id)
+    .bind(data.active)
     .bind(data.name)
     .bind(data.r#type)
     .bind(data.aggregate)
@@ -117,7 +130,7 @@ pub async fn create(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok((StatusCode::CREATED, Json(chain)))
@@ -127,15 +140,15 @@ pub async fn show(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(chain_id): Path<i64>,
-) -> Result<Json<Chain>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Chain>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
     let chain = find_chain(&pool, current_user.id, chain_id).await?;
 
     Ok(Json(chain))
 }
 
-async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain, StatusCode> {
-    let chain = sqlx::query_as::<_, Chain>(
+async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain, AppError> {
+    sqlx::query_as::<_, Chain>(
         r#"
         SELECT *
         FROM chains
@@ -148,34 +161,41 @@ async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain,
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::NOT_FOUND
-    })?;
-
-    Ok(chain)
+        AppError::NotFound("chain not found".into())
+    })
 }
 
 pub async fn update(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(chain_id): Path<i64>,
-    Json(data): Json<UpdateChainRequest>,
-) -> Result<Json<Chain>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+    Json(body): Json<Value>,
+) -> Result<Json<Chain>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+
+    let data: UpdateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
+        AppError::Validation(vec![FieldError {
+            field: err.path().to_string(),
+            message: err.to_string(),
+        }])
+    })?;
 
     let chain = sqlx::query_as::<_, Chain>(
         r#"
         UPDATE chains
         SET
-            name = COALESCE($1, name),
-            type = COALESCE($2, type),
-            aggregate = COALESCE($3, aggregate),
-            description = COALESCE($4, description),
-            "order" = COALESCE($5, "order"),
+            active = COALESCE($1, active),
+            name = COALESCE($2, name),
+            type = COALESCE($3, type),
+            aggregate = COALESCE($4, aggregate),
+            description = COALESCE($5, description),
+            "order" = COALESCE($6, "order"),
             updated_at = NOW()
-        WHERE id = $6 AND user_id = $7
+        WHERE id = $7 AND user_id = $8
         RETURNING *
         "#,
     )
+    .bind(data.active)
     .bind(data.name)
     .bind(data.r#type)
     .bind(data.aggregate)
@@ -187,7 +207,7 @@ pub async fn update(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(chain))
@@ -197,8 +217,8 @@ pub async fn delete(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(chain_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<StatusCode, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -212,31 +232,8 @@ pub async fn delete(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-async fn find_current_user(pool: &PgPool, cookie_jar: &CookieJar) -> Result<User, StatusCode> {
-    let jwt = cookie_jar
-        .get("jwt")
-        .ok_or(StatusCode::UNAUTHORIZED)?
-        .value();
-
-    let token_data = decode_jwt(jwt.to_string()).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        SELECT id, email, password_hash
-        FROM users
-        WHERE email = $1
-        "#,
-    )
-    .bind(token_data.claims.email)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    Ok(user)
 }

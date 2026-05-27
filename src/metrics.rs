@@ -6,11 +6,11 @@ use axum_extra::extract::cookie::CookieJar;
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::chains::ChainType;
-use crate::users::{CurrentUser, decode_jwt};
+use crate::error::AppError;
+use crate::users::authenticate_user;
 
 #[derive(Serialize)]
 pub struct HistoryResponse {
@@ -42,7 +42,7 @@ pub struct MetricDTO {
 }
 
 #[derive(Deserialize)]
-pub struct UpdateMetricData {
+pub struct UpdateMetricPayload {
     pub date: NaiveDate,
     pub value: String,
     pub chain_id: i64,
@@ -75,9 +75,9 @@ pub struct MetricByDate {
 pub async fn upsert(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-    Json(data): Json<UpdateMetricData>,
-) -> Result<Json<Metric>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+    Json(data): Json<UpdateMetricPayload>,
+) -> Result<Json<Metric>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let chain_type = sqlx::query_scalar!(
         r#"
@@ -91,31 +91,32 @@ pub async fn upsert(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|_| StatusCode::NOT_FOUND)?;
+    .map_err(|_| AppError::NotFound("chain not found".into()))?;
 
     let (value_integer, value_float, value_bool) = match chain_type {
         ChainType::Integer => {
             let v = data
                 .value
                 .parse::<i64>()
-                .map_err(|_| StatusCode::BAD_REQUEST)?;
+                .map_err(|_| AppError::BadRequest("invalid integer".into()))?;
             (Some(v), None, None)
         }
         ChainType::Float => {
             let v = data
                 .value
                 .parse::<f64>()
-                .map_err(|_| StatusCode::BAD_REQUEST)?;
+                .map_err(|_| AppError::BadRequest("invalid float".into()))?;
             (None, Some(v), None)
         }
-        ChainType::Boolean => {
-            let v = match data.value.as_str() {
-                "true" => true,
-                "false" => false,
-                _ => return Err(StatusCode::BAD_REQUEST),
-            };
-            (None, None, Some(v))
-        }
+        ChainType::Boolean => match data.value.as_str() {
+            "true" => (None, None, Some(true)),
+            "false" => (None, None, Some(false)),
+            _ => {
+                return Err(AppError::BadRequest(
+                    "invalid boolean, use true/false".into(),
+                ));
+            }
+        },
     };
 
     let row = sqlx::query_as::<_, Metric>(
@@ -148,7 +149,7 @@ pub async fn upsert(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(row))
@@ -158,8 +159,8 @@ pub async fn delete(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(metric_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<StatusCode, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -176,7 +177,7 @@ pub async fn delete(
     .bind(current_user.id)
     .execute(&pool)
     .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    .map_err(|_| AppError::BadRequest("database error".into()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -185,8 +186,8 @@ pub async fn get_by_date(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Query(params): Query<MetricsQuery>,
-) -> Result<Json<Vec<MetricByDate>>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Vec<MetricByDate>>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let rows = sqlx::query_as::<_, MetricByDate>(
         r#"
@@ -221,7 +222,7 @@ pub async fn get_by_date(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(rows))
@@ -230,8 +231,8 @@ pub async fn get_by_date(
 pub async fn history(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-) -> Result<Json<HistoryResponse>, StatusCode> {
-    let user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<HistoryResponse>, AppError> {
+    let user = authenticate_user(&pool, &cookie_jar).await?;
 
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
@@ -250,7 +251,7 @@ pub async fn history(
     )
     .fetch_all(&pool)
     .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    .map_err(|_| AppError::BadRequest("database error".into()))?;
 
     let metrics = sqlx::query_as!(
         MetricDTO,
@@ -270,7 +271,7 @@ pub async fn history(
     )
     .fetch_all(&pool)
     .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    .map_err(|_| AppError::BadRequest("database error".into()))?;
 
     let chain_aggs: HashMap<i64, String> =
         chains.iter().map(|c| (c.id, c.aggregate.clone())).collect();
@@ -325,30 +326,4 @@ pub async fn history(
         chains,
         sprints: { sprints },
     }))
-}
-
-async fn find_current_user(
-    pool: &PgPool,
-    cookie_jar: &CookieJar,
-) -> Result<CurrentUser, StatusCode> {
-    let jwt = cookie_jar
-        .get("jwt")
-        .ok_or(StatusCode::UNAUTHORIZED)?
-        .value();
-
-    let token_data = decode_jwt(jwt.to_string()).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user = sqlx::query_as::<_, CurrentUser>(
-        r#"
-        SELECT id, email, password_hash
-        FROM users
-        WHERE email = $1
-        "#,
-    )
-    .bind(token_data.claims.email)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    Ok(user)
 }
