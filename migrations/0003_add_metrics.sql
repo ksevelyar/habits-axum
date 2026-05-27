@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS metrics (
 
   date DATE NOT NULL,
 
-  value_integer BIGINT,
+  value_integer INT,
   value_float DOUBLE PRECISION,
   value_bool BOOLEAN,
 

@@ -6,6 +6,7 @@ use axum_extra::extract::cookie::CookieJar;
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use crate::chains::ChainType;
@@ -28,7 +29,7 @@ pub struct ChainDTO {
 #[derive(Serialize)]
 pub struct SprintDTO {
     pub total: HashMap<i64, f64>,
-    pub week: HashMap<String, HashMap<i64, MetricDTO>>,
+    pub week: BTreeMap<String, HashMap<i64, MetricDTO>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -57,7 +58,7 @@ pub struct Metric {
     pub id: i64,
     pub chain_id: i64,
     pub date: NaiveDate,
-    pub value_integer: Option<i64>,
+    pub value_integer: Option<i32>,
     pub value_float: Option<f64>,
     pub value_bool: Option<bool>,
 }
@@ -145,7 +146,10 @@ pub async fn upsert(
     .bind(value_bool)
     .fetch_one(&pool)
     .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    .map_err(|err| {
+        dbg!(err);
+        StatusCode::BAD_REQUEST
+    })?;
 
     Ok(Json(row))
 }
@@ -231,19 +235,15 @@ pub async fn history(
 
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
-    let start = week_start - Duration::days(7);
+    let prev_week_start = week_start - Duration::days(7);
+    let week_start_str = week_start.to_string();
 
     let chains = sqlx::query_as!(
         ChainDTO,
         r#"
-        SELECT
-            id,
-            name,
-            type::text AS "type!",
-            aggregate::text AS "aggregate!"
+        SELECT id, name, type::text AS "type!", aggregate::text AS "aggregate!"
         FROM chains
-        WHERE user_id = $1
-          AND active = true
+        WHERE user_id = $1 AND active = true
         ORDER BY "order"
         "#,
         user.id
@@ -255,47 +255,75 @@ pub async fn history(
     let metrics = sqlx::query_as!(
         MetricDTO,
         r#"
-        SELECT
-            m.id,
-
-            COALESCE(
-                m.value_float,
-                m.value_integer::float8,
-                CASE WHEN m.value_bool THEN 1.0 ELSE 0.0 END
-            )::float8 AS "value!",
-
-            m.date::text AS "date!",
-            c.name AS "chain!",
-            c.id AS "chain_id!"
-
+        SELECT m.id,
+               COALESCE(m.value_float, m.value_integer::float8,
+                        CASE WHEN m.value_bool THEN 1.0 ELSE 0.0 END)::float8 AS "value!",
+               m.date::text AS "date!",
+               c.name AS "chain!", c.id AS "chain_id!"
         FROM metrics m
         JOIN chains c ON c.id = m.chain_id
-        WHERE c.user_id = $1
-          AND c.active = true
-          AND m.date >= $2
+        WHERE c.user_id = $1 AND c.active = true AND m.date >= $2
         ORDER BY m.date ASC, c.id ASC
         "#,
         user.id,
-        start
+        prev_week_start
     )
     .fetch_all(&pool)
     .await
     .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let mut total: HashMap<i64, f64> = HashMap::new();
-    let mut week: HashMap<String, HashMap<i64, MetricDTO>> = HashMap::new();
+    let chain_aggs: HashMap<i64, String> =
+        chains.iter().map(|c| (c.id, c.aggregate.clone())).collect();
+
+    #[derive(Default)]
+    struct SprintAccum {
+        sums: HashMap<i64, f64>,
+        counts: HashMap<i64, usize>,
+        week: BTreeMap<String, HashMap<i64, MetricDTO>>,
+    }
+    let mut acc = [SprintAccum::default(), SprintAccum::default()];
 
     for m in &metrics {
-        *total.entry(m.chain_id).or_insert(0.0) += m.value;
-
-        week.entry(m.date.clone())
+        let idx = if m.date >= week_start_str { 1 } else { 0 };
+        let s = &mut acc[idx];
+        *s.sums.entry(m.chain_id).or_insert(0.0) += m.value;
+        *s.counts.entry(m.chain_id).or_insert(0) += 1;
+        s.week
+            .entry(m.date.clone())
             .or_default()
             .insert(m.chain_id, m.clone());
     }
 
+    let sprints: Vec<SprintDTO> = acc
+        .into_iter()
+        .map(|a| {
+            let mut total: HashMap<i64, f64> = chains.iter().map(|c| (c.id, 0.0)).collect();
+
+            for (chain_id, sum) in a.sums {
+                let count = a.counts.get(&chain_id).copied().unwrap_or(0);
+                let agg = chain_aggs
+                    .get(&chain_id)
+                    .map(|s| s.as_str())
+                    .unwrap_or("sum");
+
+                let val = if agg == "avg" && count > 0 {
+                    (sum / (count as f64) * 10.0).round() / 10.0
+                } else {
+                    sum
+                };
+                total.insert(chain_id, val);
+            }
+
+            SprintDTO {
+                total,
+                week: a.week,
+            }
+        })
+        .collect();
+
     Ok(Json(HistoryResponse {
         chains,
-        sprints: vec![SprintDTO { total, week }],
+        sprints: { sprints },
     }))
 }
 

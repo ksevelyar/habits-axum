@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id,\n            name,\n            type::text AS \"type!\",\n            aggregate::text AS \"aggregate!\"\n        FROM chains\n        WHERE user_id = $1\n          AND active = true\n        ORDER BY \"order\"\n        ",
+  "query": "\n        SELECT id, name, type::text AS \"type!\", aggregate::text AS \"aggregate!\"\n        FROM chains\n        WHERE user_id = $1 AND active = true\n        ORDER BY \"order\"\n        ",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       null
     ]
   },
-  "hash": "d6cdc895196c26c32ae7aa8b63f1b3a25b66a7b948e86c815a176c1d4e616fb1"
+  "hash": "b6a7bc7bcab3b64c414be7c2b95c1df8d3a8e15100d5f7febe7a0115851ad140"
 }
