@@ -9,6 +9,9 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+
+use crate::error::AppError;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     pub exp: usize,
@@ -16,33 +19,42 @@ pub struct Claims {
 }
 
 #[derive(Deserialize)]
-pub struct CreateSessionRequest {
+pub struct CreateSessionPayload {
     pub email: String,
     pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateUserPayload {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct BackendUser {
+    pub id: i64,
+    pub email: String,
+    pub password_hash: String,
+}
+
+#[derive(Serialize, sqlx::FromRow, Debug)]
+pub struct User {
+    pub id: i64,
+    pub email: String,
 }
 
 pub async fn current(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-) -> Result<Json<CurrentUser>, StatusCode> {
-    let jwt = cookie_jar
-        .get("jwt")
-        .ok_or(StatusCode::UNAUTHORIZED)?
-        .value();
-
-    let claims = decode_jwt(jwt.to_string()).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user = find_user(&pool, &claims.claims.email)
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
+) -> Result<Json<User>, AppError> {
+    let user = authenticate_user(&pool, &cookie_jar).await?;
     Ok(Json(user))
 }
 
-pub async fn create(
+pub async fn create_session(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-    Json(user_data): Json<CreateSessionRequest>,
+    Json(user_data): Json<CreateSessionPayload>,
 ) -> impl IntoResponse {
     let user = find_user(&pool, &user_data.email)
         .await
@@ -62,24 +74,31 @@ pub async fn create(
     ))
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct CurrentUser {
-    pub id: i64,
-    pub email: String,
-    pub password_hash: String,
-}
-
-async fn find_user(pool: &PgPool, email: &str) -> Result<CurrentUser, sqlx::Error> {
-    sqlx::query_as::<_, CurrentUser>("SELECT * FROM users WHERE email = $1")
+async fn find_user(pool: &PgPool, email: &str) -> Result<BackendUser, sqlx::Error> {
+    sqlx::query_as::<_, BackendUser>("SELECT * FROM users WHERE email = $1")
         .bind(email)
         .fetch_one(pool)
         .await
 }
 
+pub async fn authenticate_token(pool: &PgPool, token: &str) -> Result<User, AppError> {
+    let token_data = decode_jwt(token.to_string()).map_err(|_| AppError::Unauthorized)?;
+    sqlx::query_as::<_, User>("SELECT id, email FROM users WHERE email = $1")
+        .bind(token_data.claims.email)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| AppError::Unauthorized)
+}
+
+pub async fn authenticate_user(pool: &PgPool, cookie_jar: &CookieJar) -> Result<User, AppError> {
+    let jwt = cookie_jar.get("jwt").ok_or(AppError::Unauthorized)?.value();
+    authenticate_token(pool, jwt).await
+}
+
 pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
     let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let now = Utc::now();
-    let expire: chrono::TimeDelta = Duration::hours(24);
+    let expire: chrono::TimeDelta = Duration::hours(24 * 7);
     let exp: usize = (now + expire).timestamp() as usize;
     let claim = Claims { exp, email };
 
@@ -101,7 +120,7 @@ pub fn decode_jwt(jwt_token: String) -> Result<TokenData<Claims>, StatusCode> {
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-pub fn build_cookie<'a>(key: &str, token: String, duration_hrs: i64) -> Cookie<'a> {
+fn build_cookie<'a>(key: &str, token: String, duration_hrs: i64) -> Cookie<'a> {
     Cookie::build((key.to_string(), token))
         .path("/")
         .http_only(true)
@@ -110,26 +129,13 @@ pub fn build_cookie<'a>(key: &str, token: String, duration_hrs: i64) -> Cookie<'
         .build()
 }
 
-pub fn hash(input: &str) -> Result<String, bcrypt::BcryptError> {
+fn hash(input: &str) -> Result<String, bcrypt::BcryptError> {
     bcrypt::hash(input, bcrypt::DEFAULT_COST)
 }
 
-#[derive(Deserialize)]
-pub struct RegisterData {
-    pub email: String,
-    pub password: String,
-}
-
-// FIXME: merge with CurrentUser
-#[derive(Serialize, sqlx::FromRow, Debug)]
-pub struct User {
-    pub id: i64,
-    pub email: String,
-}
-
-pub async fn register(
+pub async fn create(
     State(pool): State<PgPool>,
-    Json(user_data): Json<RegisterData>,
+    Json(user_data): Json<CreateUserPayload>,
 ) -> Result<(StatusCode, Json<User>), StatusCode> {
     let hashed_password =
         hash(&user_data.password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

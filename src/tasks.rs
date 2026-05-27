@@ -7,7 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use crate::users::{User, decode_jwt};
+use crate::error::AppError;
+use crate::users::authenticate_user;
 
 #[derive(Deserialize)]
 pub struct TaskPayload {
@@ -33,8 +34,8 @@ pub struct Task {
 pub async fn list(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
-) -> Result<Json<Vec<Task>>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Vec<Task>>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let tasks = sqlx::query_as::<_, Task>(
         r#"
@@ -49,7 +50,7 @@ pub async fn list(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(tasks))
@@ -59,8 +60,8 @@ pub async fn create(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Json(data): Json<TaskPayload>,
-) -> Result<(StatusCode, Json<Task>), StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<(StatusCode, Json<Task>), AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -82,7 +83,7 @@ pub async fn create(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok((StatusCode::CREATED, Json(task)))
@@ -92,15 +93,15 @@ pub async fn show(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
-) -> Result<Json<Task>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Task>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
     let task = find_task(&pool, current_user.id, task_id).await?;
 
     Ok(Json(task))
 }
 
-async fn find_task(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, StatusCode> {
-    let task = sqlx::query_as::<_, Task>(
+async fn find_task(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, AppError> {
+    sqlx::query_as::<_, Task>(
         r#"
         SELECT *
         FROM tasks
@@ -113,10 +114,8 @@ async fn find_task(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, St
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::NOT_FOUND
-    })?;
-
-    Ok(task)
+        AppError::NotFound("task not found".into())
+    })
 }
 
 pub async fn update(
@@ -124,8 +123,8 @@ pub async fn update(
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
     Json(data): Json<TaskPayload>,
-) -> Result<Json<Task>, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<Json<Task>, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -148,7 +147,7 @@ pub async fn update(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(task))
@@ -158,8 +157,8 @@ pub async fn delete(
     State(pool): State<PgPool>,
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
-    let current_user = find_current_user(&pool, &cookie_jar).await?;
+) -> Result<StatusCode, AppError> {
+    let current_user = authenticate_user(&pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -173,31 +172,8 @@ pub async fn delete(
     .await
     .map_err(|err| {
         dbg!(err);
-        StatusCode::BAD_REQUEST
+        AppError::BadRequest("database error".into())
     })?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-async fn find_current_user(pool: &PgPool, cookie_jar: &CookieJar) -> Result<User, StatusCode> {
-    let jwt = cookie_jar
-        .get("jwt")
-        .ok_or(StatusCode::UNAUTHORIZED)?
-        .value();
-
-    let token_data = decode_jwt(jwt.to_string()).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        SELECT id, email, password_hash
-        FROM users
-        WHERE email = $1
-        "#,
-    )
-    .bind(token_data.claims.email)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    Ok(user)
 }
