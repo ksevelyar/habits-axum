@@ -194,7 +194,7 @@ pub async fn create(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         StatusCode::BAD_REQUEST
     })?;
 

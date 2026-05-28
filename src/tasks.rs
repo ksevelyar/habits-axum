@@ -49,11 +49,25 @@ pub async fn list(
     .fetch_all(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
     Ok(Json(tasks))
+}
+
+pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, sqlx::Error> {
+    sqlx::query_as::<_, Task>(
+        r#"
+        SELECT *
+        FROM tasks
+        WHERE user_id = $1
+        ORDER BY id DESC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn create(
@@ -82,7 +96,7 @@ pub async fn create(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -113,7 +127,7 @@ async fn find_task(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, Ap
     .fetch_one(pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::NotFound("task not found".into())
     })
 }
@@ -146,7 +160,7 @@ pub async fn update(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -171,7 +185,7 @@ pub async fn delete(
     .execute(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 

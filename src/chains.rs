@@ -83,7 +83,7 @@ pub async fn list(
     .fetch_all(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -129,7 +129,7 @@ pub async fn create(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -160,7 +160,7 @@ async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain,
     .fetch_one(pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::NotFound("chain not found".into())
     })
 }
@@ -206,7 +206,7 @@ pub async fn update(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -231,7 +231,7 @@ pub async fn delete(
     .execute(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
