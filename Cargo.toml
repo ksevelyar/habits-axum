@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
-tracing = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono"] }
 serde = { version = "1", features = ["derive"] }
@@ -15,13 +14,15 @@ bcrypt = "0.19.1"
 chrono = {version = "0.4.44", features = ["serde"]}
 jsonwebtoken = {version = "10.4.0", features = ["rust_crypto"]}
 tower-http = { version = "0.6", features = ["full"] }
-tracing-subscriber = "0.3.23"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 cookie = "0.18.1"
 serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4"] }
+cron = "0.13"
+futures-util = "0.3"
 
 [dev-dependencies]
 tower = "0.5"
 http-body-util = "0.1"
 tokio-tungstenite = "0.29"
-futures-util = "0.3"

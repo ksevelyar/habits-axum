@@ -38,6 +38,7 @@
               (rust-bin.stable.latest.default.override {
                 extensions = ["rust-src"];
               })
+
               (writeShellScriptBin "ci" ''
                 set -euo pipefail
                 sqlx migrate run
@@ -49,7 +50,7 @@
             ];
             DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
             ORIGIN = "http://habits.lcl:3000";
-            RUST_LOG = "tower_http=debug";
+            RUST_LOG = "info";
             JWT_SECRET = "very secret";
           };
         }

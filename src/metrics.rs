@@ -148,7 +148,7 @@ pub async fn upsert(
     .fetch_one(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
@@ -221,7 +221,7 @@ pub async fn get_by_date(
     .fetch_all(&pool)
     .await
     .map_err(|err| {
-        dbg!(err);
+        tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
