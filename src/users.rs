@@ -11,11 +11,15 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::error::AppError;
+use std::env;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     pub exp: usize,
     pub email: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +32,18 @@ pub struct CreateSessionPayload {
 pub struct CreateUserPayload {
     pub email: String,
     pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateDevicePayload {
+    pub device_name: String,
+}
+
+#[derive(Serialize)]
+pub struct DeviceTokenResponse {
+    pub device_id: String,
+    pub device_name: String,
+    pub token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -100,7 +116,33 @@ pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
     let now = Utc::now();
     let expire: chrono::TimeDelta = Duration::hours(24 * 7);
     let exp: usize = (now + expire).timestamp() as usize;
-    let claim = Claims { exp, email };
+    let claim = Claims {
+        exp,
+        email,
+        device_id: None,
+        device_name: None,
+    };
+
+    encode(
+        &Header::default(),
+        &claim,
+        &EncodingKey::from_secret(jwt_secret.as_ref()),
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub fn encode_device_jwt(
+    email: String,
+    device_id: String,
+    device_name: String,
+) -> Result<String, StatusCode> {
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let claim = Claims {
+        exp: usize::MAX,
+        email,
+        device_id: Some(device_id),
+        device_name: Some(device_name),
+    };
 
     encode(
         &Header::default(),
@@ -157,4 +199,41 @@ pub async fn create(
     })?;
 
     Ok((StatusCode::CREATED, Json(user)))
+}
+
+pub async fn create_device(
+    State(pool): State<PgPool>,
+    cookie_jar: CookieJar,
+    Json(payload): Json<CreateDevicePayload>,
+) -> Result<(StatusCode, Json<DeviceTokenResponse>), AppError> {
+    let user = authenticate_user(&pool, &cookie_jar).await?;
+    let device_id = Uuid::new_v4().to_string();
+    let device_name = payload.device_name;
+    let token = encode_device_jwt(user.email, device_id.clone(), device_name.clone())
+        .map_err(|_| AppError::Internal("failed to generate token".into()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(DeviceTokenResponse {
+            device_id,
+            device_name,
+            token,
+        }),
+    ))
+}
+pub async fn set_dev_password(pool: &PgPool) {
+    if let Ok(dev_password) = env::var("DEV_PASSWORD") {
+        let hash = hash(&dev_password).unwrap();
+        sqlx::query(
+            "INSERT INTO users (handle, email, password_hash, inserted_at, updated_at)
+             VALUES ($1, $2, $3, NOW(), NOW())
+             ON CONFLICT (email) DO UPDATE SET password_hash = $3",
+        )
+        .bind("ksevelyar")
+        .bind("ksevelyar@gmail.com")
+        .bind(&hash)
+        .execute(pool)
+        .await
+        .expect("Failed to seed dev user");
+        println!("🐗 Seeded dev user: ksevelyar@gmail.com");
+    }
 }
