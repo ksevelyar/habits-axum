@@ -28,6 +28,7 @@ pub fn app(pool: PgPool) -> Router {
         .route("/sessions", post(users::create_session))
         .route("/sessions/current", get(users::current))
         .route("/users", post(users::create))
+        .route("/devices", post(users::create_device))
         .route("/chains", get(chains::list))
         .route("/chains", post(chains::create))
         .route("/chains/{chain_id}", patch(chains::update))

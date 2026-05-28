@@ -1,4 +1,4 @@
-use habits_axum::app;
+use habits_axum::{app, users};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
@@ -16,6 +16,8 @@ async fn main() {
         .run(&pool)
         .await
         .expect("Migrations failed");
+
+    users::set_dev_password(&pool).await;
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
     println!("🐗 Listening on {}", listener.local_addr().unwrap());

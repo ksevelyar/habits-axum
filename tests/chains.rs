@@ -53,7 +53,7 @@ fn delete_req(uri: &str, cookie: &str) -> Request<Body> {
 async fn session(pool: &PgPool) -> String {
     let mut app = app(pool.clone()).into_service();
 
-    let res = app
+    let create_user_response = app
         .ready()
         .await
         .unwrap()
@@ -63,9 +63,9 @@ async fn session(pool: &PgPool) -> String {
         ))
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(create_user_response.status(), StatusCode::CREATED);
 
-    let res = app
+    let create_session_response = app
         .ready()
         .await
         .unwrap()
@@ -75,9 +75,9 @@ async fn session(pool: &PgPool) -> String {
         ))
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(create_session_response.status(), StatusCode::CREATED);
 
-    cookie_from(&res)
+    cookie_from(&create_session_response)
 }
 
 #[sqlx::test]
