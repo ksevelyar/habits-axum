@@ -1,4 +1,5 @@
 # Habits
+[![habits-vue](habits-vue.png)](https://github.com/ksevelyar/habits-vue)
 
 ## Run
 ```
