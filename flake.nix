@@ -27,6 +27,7 @@
             cargoLock.lockFile = ./Cargo.lock;
 
             SQLX_OFFLINE = "true";
+            doCheck = false;
           };
 
           devShells.default = mkShell {
@@ -41,11 +42,13 @@
 
               (writeShellScriptBin "ci" ''
                 set -euo pipefail
-                sqlx migrate run
-                cargo build
+                cargo sqlx migrate run
+                cargo sqlx prepare
                 cargo fmt --all -- --check --color always
                 cargo clippy --all-features --workspace -- -D warnings
                 cargo test
+
+                nix build
               '')
             ];
             DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
