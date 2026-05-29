@@ -3,10 +3,13 @@
 
 ## Run
 ```
-sqlx database create
 nix develop
+cargo sqlx database create
 cargo watch -x run
 ```
 
-## Database
-* `cargo sqlx prepare` to update the query cache
+## Build
+```
+cargo sqlx prepare
+nix build
+```
