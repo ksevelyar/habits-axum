@@ -9,15 +9,20 @@ use tokio_tungstenite::{client_async, tungstenite};
 
 use habits_axum::{app, users};
 
-#[sqlx::test]
-async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
-    let hash = bcrypt::hash("pass", bcrypt::DEFAULT_COST).unwrap();
-    sqlx::query("INSERT INTO users (email, password_hash) VALUES ($1, $2)")
+async fn insert_user(pool: &PgPool) {
+    let hash = crate::users::hash("pass").unwrap();
+    sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
         .bind("test@test.com")
         .bind(&hash)
-        .execute(&pool)
+        .bind("trinity")
+        .execute(pool)
         .await
         .unwrap();
+}
+
+#[sqlx::test]
+async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
+    insert_user(&pool).await;
 
     let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
 
@@ -49,13 +54,7 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
 
 #[sqlx::test]
 async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
-    let hash = bcrypt::hash("pass", bcrypt::DEFAULT_COST).unwrap();
-    sqlx::query("INSERT INTO users (email, password_hash) VALUES ($1, $2)")
-        .bind("test@test.com")
-        .bind(&hash)
-        .execute(&pool)
-        .await
-        .unwrap();
+    insert_user(&pool).await;
 
     let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
 
@@ -106,13 +105,7 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
 
 #[sqlx::test]
 async fn send_three_cron_reminders(pool: PgPool) {
-    let hash = bcrypt::hash("pass", bcrypt::DEFAULT_COST).unwrap();
-    sqlx::query("INSERT INTO users (email, password_hash) VALUES ($1, $2)")
-        .bind("test@test.com")
-        .bind(&hash)
-        .execute(&pool)
-        .await
-        .unwrap();
+    insert_user(&pool).await;
 
     let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
 

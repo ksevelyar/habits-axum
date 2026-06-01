@@ -9,10 +9,30 @@ use axum::Router;
 use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
 use axum::routing::{delete, get, patch, post};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use std::sync::Arc;
+use tokio::sync::{RwLock, broadcast};
+
+#[derive(Debug)]
+struct UserEntry {
+    tx: broadcast::Sender<String>,
+}
+
+#[derive(Debug)]
+pub struct AppState {
+    users: RwLock<HashMap<i64, UserEntry>>,
+    pool: PgPool,
+}
+
 pub fn app(pool: PgPool) -> Router {
+    let state = Arc::new(AppState {
+        users: RwLock::new(HashMap::new()),
+        pool,
+    });
+
     let cors = CorsLayer::new()
         .allow_origin(
             std::env::var("ORIGIN")
@@ -46,5 +66,5 @@ pub fn app(pool: PgPool) -> Router {
         .route("/websocket/notifications", get(notifications::connect))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .with_state(pool)
+        .with_state(state)
 }

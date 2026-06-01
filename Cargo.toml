@@ -21,6 +21,7 @@ serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4"] }
 cron = "0.13"
 futures-util = "0.3"
+chrono-tz = "0.10.4"
 
 [dev-dependencies]
 tower = "0.5"
