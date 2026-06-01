@@ -6,6 +6,7 @@ use axum_extra::extract::cookie::CookieJar;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 use crate::error::AppError;
 use crate::users::authenticate_user;
@@ -21,9 +22,9 @@ pub struct TaskPayload {
 pub struct Task {
     pub id: i64,
 
-    pub name: Option<String>,
+    pub name: String,
     pub active: bool,
-    pub cron: Option<String>,
+    pub cron: String,
 
     pub user_id: i64,
 
@@ -32,10 +33,10 @@ pub struct Task {
 }
 
 pub async fn list(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<Vec<Task>>, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let tasks = sqlx::query_as::<_, Task>(
         r#"
@@ -46,7 +47,7 @@ pub async fn list(
         "#,
     )
     .bind(current_user.id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
@@ -71,11 +72,11 @@ pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, s
 }
 
 pub async fn create(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Json(data): Json<TaskPayload>,
 ) -> Result<(StatusCode, Json<Task>), AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -93,7 +94,7 @@ pub async fn create(
     .bind(data.name)
     .bind(data.cron)
     .bind(data.active.unwrap_or(false))
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
@@ -104,12 +105,12 @@ pub async fn create(
 }
 
 pub async fn show(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Task>, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
-    let task = find_task(&pool, current_user.id, task_id).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let task = find_task(&state.pool, current_user.id, task_id).await?;
 
     Ok(Json(task))
 }
@@ -133,12 +134,12 @@ async fn find_task(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, Ap
 }
 
 pub async fn update(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
     Json(data): Json<TaskPayload>,
 ) -> Result<Json<Task>, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -157,7 +158,7 @@ pub async fn update(
     .bind(data.active)
     .bind(task_id)
     .bind(current_user.id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
@@ -168,11 +169,11 @@ pub async fn update(
 }
 
 pub async fn delete(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -182,7 +183,7 @@ pub async fn delete(
     )
     .bind(task_id)
     .bind(current_user.id)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");

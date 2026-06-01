@@ -5,8 +5,8 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use crate::chains::ChainType;
 use crate::error::AppError;
@@ -73,11 +73,11 @@ pub struct MetricByDate {
 }
 
 pub async fn upsert(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Json(data): Json<UpdateMetricPayload>,
 ) -> Result<Json<Metric>, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let chain_type = sqlx::query_scalar!(
         r#"
@@ -89,7 +89,7 @@ pub async fn upsert(
         data.chain_id,
         current_user.id
     )
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|_| AppError::NotFound("chain not found".into()))?;
 
@@ -145,7 +145,7 @@ pub async fn upsert(
     .bind(value_integer)
     .bind(value_float)
     .bind(value_bool)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
@@ -156,11 +156,11 @@ pub async fn upsert(
 }
 
 pub async fn delete(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Path(metric_id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -175,7 +175,7 @@ pub async fn delete(
     )
     .bind(metric_id)
     .bind(current_user.id)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|_| AppError::BadRequest("database error".into()))?;
 
@@ -183,11 +183,11 @@ pub async fn delete(
 }
 
 pub async fn get_by_date(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Query(params): Query<MetricsQuery>,
 ) -> Result<Json<Vec<MetricByDate>>, AppError> {
-    let current_user = authenticate_user(&pool, &cookie_jar).await?;
+    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let rows = sqlx::query_as::<_, MetricByDate>(
         r#"
@@ -218,7 +218,7 @@ pub async fn get_by_date(
     )
     .bind(params.date)
     .bind(current_user.id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
@@ -229,10 +229,10 @@ pub async fn get_by_date(
 }
 
 pub async fn history(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<HistoryResponse>, AppError> {
-    let user = authenticate_user(&pool, &cookie_jar).await?;
+    let user = authenticate_user(&state.pool, &cookie_jar).await?;
 
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
@@ -249,7 +249,7 @@ pub async fn history(
         "#,
         user.id
     )
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|_| AppError::BadRequest("database error".into()))?;
 
@@ -269,7 +269,7 @@ pub async fn history(
         user.id,
         prev_week_start
     )
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|_| AppError::BadRequest("database error".into()))?;
 

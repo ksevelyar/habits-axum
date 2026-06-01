@@ -59,7 +59,7 @@ async fn session(pool: &PgPool) -> String {
         .unwrap()
         .call(post_json(
             "/users",
-            json!({"email": "t@t.com", "password": "x"}),
+            json!({"email": "t@t.com", "password": "x", "timezone": "Europe/London", "handle": "user9000"}),
         ))
         .await
         .unwrap();

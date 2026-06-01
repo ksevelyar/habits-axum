@@ -12,24 +12,21 @@ use cron::Schedule;
 use serde_json::json;
 use sqlx::PgPool;
 use std::str::FromStr;
-use std::time::Duration;
 
 use crate::error::AppError;
 use crate::tasks;
 use crate::users;
 
-struct CronTask {
-    id: i64,
-    name: String,
-    schedule: Schedule,
-    next_run: Option<DateTime<Utc>>,
-}
+use crate::{AppState, UserEntry};
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use std::sync::Arc;
+use tokio::sync::broadcast;
 
 pub async fn connect(
     ws: WebSocketUpgrade,
     cookie_jar: CookieJar,
     headers: HeaderMap,
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
 ) -> Response {
     let token = cookie_jar
         .get("jwt")
@@ -43,17 +40,21 @@ pub async fn connect(
         });
 
     let user = match token {
-        Some(t) => match users::authenticate_token(&pool, &t).await {
+        Some(t) => match users::authenticate_token(&state.pool, &t).await {
             Ok(u) => u,
             Err(_) => return AppError::Unauthorized.into_response(),
         },
         None => return AppError::Unauthorized.into_response(),
     };
 
-    ws.on_upgrade(move |socket| handle_connection(socket, user, pool))
+    ws.on_upgrade(move |socket| handle_connection(socket, user, state))
 }
 
-async fn handle_connection(mut socket: WebSocket, user: users::User, pool: PgPool) {
+async fn handle_connection(mut socket: WebSocket, user: users::User, state: Arc<AppState>) {
+    let tx = get_or_create_user_channel(state.clone(), &user).await;
+
+    let mut rx = tx.subscribe();
+
     let ack = json!({"event": "UserAuthenticated", "user": user});
     if socket
         .send(Message::Text(ack.to_string().into()))
@@ -62,87 +63,112 @@ async fn handle_connection(mut socket: WebSocket, user: users::User, pool: PgPoo
     {
         return;
     }
+    let (mut sender, mut receiver) = socket.split();
 
-    let rows = match tasks::list_by_user_id(&pool, user.id).await {
-        Ok(r) => r,
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if sender.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(result) = receiver.next().await {
+            match result {
+                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = &mut send_task => recv_task.abort(),
+        _ = &mut recv_task => send_task.abort(),
+    };
+
+    println!("Disconnected user {}", user.id);
+}
+
+async fn get_or_create_user_channel(
+    state: Arc<AppState>,
+    user: &users::User,
+) -> broadcast::Sender<String> {
+    {
+        let users = state.users.read().await;
+
+        if let Some(entry) = users.get(&user.id) {
+            return entry.tx.clone();
+        }
+    }
+
+    let mut users = state.users.write().await;
+
+    if let Some(entry) = users.get(&user.id) {
+        return entry.tx.clone();
+    }
+
+    let (tx, _) = broadcast::channel::<String>(100);
+
+    tokio::spawn(user_scheduler(user.clone(), tx.clone(), state.pool.clone()));
+
+    users.insert(user.id, UserEntry { tx: tx.clone() });
+
+    tx
+}
+
+fn eval_next_run(
+    tasks: &[tasks::Task],
+    tz: chrono_tz::Tz,
+) -> Option<(&tasks::Task, DateTime<Utc>)> {
+    let now_local = Utc::now().with_timezone(&tz);
+
+    tasks
+        .iter()
+        .filter(|task| task.active)
+        .filter_map(|task| {
+            let schedule = Schedule::from_str(&task.cron).ok()?;
+
+            let next_local = schedule.upcoming(tz).find(|t| *t > now_local)?;
+
+            let next_utc = next_local.with_timezone(&Utc);
+
+            Some((task, next_utc))
+        })
+        .min_by_key(|(_, t)| *t)
+}
+
+async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: PgPool) {
+    let tasks = match tasks::list_by_user_id(&pool, user.id).await {
+        Ok(tasks) => tasks,
         Err(e) => {
             tracing::error!("failed to load tasks: {e}");
             return;
         }
     };
 
-    let mut scheduled: Vec<CronTask> = Vec::new();
-    for task in &rows {
-        if !task.active {
-            continue;
-        }
-        let cron_str = match &task.cron {
-            Some(c) if !c.is_empty() => c,
-            _ => continue,
-        };
-        let schedule = match Schedule::from_str(cron_str) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("invalid cron '{}': {e}", cron_str);
-                continue;
-            }
-        };
-        scheduled.push(CronTask {
-            id: task.id,
-            name: task.name.clone().unwrap_or_default(),
-            schedule,
-            next_run: None,
-        });
-    }
-
-    for t in &mut scheduled {
-        t.next_run = t.schedule.upcoming(Utc).next();
-        if let Some(r) = t.next_run {
-            tracing::info!(task_id = t.id, task_name = %t.name, next_run_at = %r);
-        }
-    }
-
-    if scheduled.is_empty() {
-        tracing::info!("no scheduled tasks");
-    }
+    let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
 
     loop {
         let now = Utc::now();
+        let (task, next_run_at) = match eval_next_run(&tasks, tz) {
+            Some(v) => v,
+            None => break,
+        };
 
-        for t in &mut scheduled {
-            if t.next_run.is_none() {
-                t.next_run = t.schedule.upcoming(Utc).next();
-            }
-        }
+        let scheduled_at = next_run_at.with_timezone(&tz);
+        tracing::info!(task_id = task.id, task_name = task.name, scheduled_at = %scheduled_at);
 
-        let next = scheduled
-            .iter()
-            .filter_map(|t| t.next_run)
-            .filter(|t| *t > now)
-            .min()
-            .map(|t| t - now)
-            .and_then(|d| d.to_std().ok())
-            .unwrap_or(Duration::from_secs(60));
+        let sleep_duration = next_run_at - now;
+        tokio::time::sleep(sleep_duration.to_std().unwrap()).await;
 
-        tokio::time::sleep(next).await;
+        let msg = json!({
+            "event": "TaskReminder",
+            "task_id": task.id,
+            "task_name": task.name,
+            "scheduled_at": scheduled_at
+        });
 
-        let now = Utc::now();
-        for t in &mut scheduled {
-            if t.next_run.is_some_and(|r| r <= now) {
-                let msg = json!({
-                    "event": "TaskReminder",
-                    "task_id": t.id,
-                    "task_name": t.name,
-                });
-                if socket
-                    .send(Message::Text(msg.to_string().into()))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-                t.next_run = t.schedule.upcoming(Utc).next();
-            }
-        }
+        let _ = tx.send(msg.to_string());
     }
 }
