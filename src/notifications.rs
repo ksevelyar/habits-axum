@@ -28,46 +28,40 @@ pub async fn connect(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let token = cookie_jar
-        .get("jwt")
-        .map(|c| c.value().to_string())
-        .or_else(|| {
-            headers
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .map(|v| v.to_string())
-        });
+    let token = cookie_jar.get("jwt").map(|c| c.value()).or_else(|| {
+        headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+    });
 
-    let user = match token {
-        Some(t) => match users::authenticate_token(&state.pool, &t).await {
-            Ok(u) => u,
-            Err(_) => return AppError::Unauthorized.into_response(),
-        },
-        None => return AppError::Unauthorized.into_response(),
+    let Some(token) = token else {
+        return AppError::Unauthorized.into_response();
+    };
+
+    let Ok(user) = users::authenticate_token(&state.pool, token).await else {
+        return AppError::Unauthorized.into_response();
     };
 
     ws.on_upgrade(move |socket| handle_connection(socket, user, state))
 }
 
-async fn handle_connection(mut socket: WebSocket, user: users::User, state: Arc<AppState>) {
+async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppState>) {
     let tx = get_or_create_user_channel(state.clone(), &user).await;
-
     let mut rx = tx.subscribe();
 
+    let (mut sender, mut receiver) = socket.split();
+
     let ack = json!({"event": "UserAuthenticated", "user": user});
-    if socket
-        .send(Message::Text(ack.to_string().into()))
-        .await
-        .is_err()
-    {
+    if let Err(e) = sender.send(Message::Text(ack.to_string().into())).await {
+        tracing::warn!(user_id = user.id, error = %e, "failed to send UserAuthenticated");
         return;
     }
-    let (mut sender, mut receiver) = socket.split();
 
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            if sender.send(Message::Text(msg.into())).await.is_err() {
+            if let Err(e) = sender.send(Message::Text(msg.into())).await {
+                tracing::warn!(error = %e, "failed to send notification to client");
                 break;
             }
         }
@@ -87,32 +81,28 @@ async fn handle_connection(mut socket: WebSocket, user: users::User, state: Arc<
         _ = &mut recv_task => send_task.abort(),
     };
 
-    println!("Disconnected user {}", user.id);
+    tracing::info!(user_id = user.id, "disconnected");
 }
 
 async fn get_or_create_user_channel(
     state: Arc<AppState>,
     user: &users::User,
 ) -> broadcast::Sender<String> {
-    {
-        let users = state.users.read().await;
-
-        if let Some(entry) = users.get(&user.id) {
-            return entry.tx.clone();
-        }
+    if let Some(tx) = {
+        let fast_path = state.users.read().await;
+        fast_path.get(&user.id).map(|entry| entry.tx.clone())
+    } {
+        return tx;
     }
 
-    let mut users = state.users.write().await;
-
-    if let Some(entry) = users.get(&user.id) {
-        return entry.tx.clone();
+    let mut slow_path = state.users.write().await;
+    if let Some(tx) = slow_path.get(&user.id).map(|entry| entry.tx.clone()) {
+        return tx;
     }
 
     let (tx, _) = broadcast::channel::<String>(100);
-
     tokio::spawn(user_scheduler(user.clone(), tx.clone(), state.pool.clone()));
-
-    users.insert(user.id, UserEntry { tx: tx.clone() });
+    slow_path.insert(user.id, UserEntry { tx: tx.clone() });
 
     tx
 }
@@ -121,43 +111,40 @@ fn eval_next_run(
     tasks: &[tasks::Task],
     tz: chrono_tz::Tz,
 ) -> Option<(&tasks::Task, DateTime<Utc>)> {
-    let now_local = Utc::now().with_timezone(&tz);
-
     tasks
         .iter()
         .filter(|task| task.active)
         .filter_map(|task| {
             let schedule = Schedule::from_str(&task.cron).ok()?;
-
-            let next_local = schedule.upcoming(tz).find(|t| *t > now_local)?;
-
-            let next_utc = next_local.with_timezone(&Utc);
-
-            Some((task, next_utc))
+            let next_run = schedule.upcoming(tz).next()?;
+            Some((task, next_run.with_timezone(&Utc)))
         })
-        .min_by_key(|(_, t)| *t)
+        .min_by_key(|(_, next_run)| *next_run)
 }
 
 async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: PgPool) {
-    let tasks = match tasks::list_by_user_id(&pool, user.id).await {
-        Ok(tasks) => tasks,
-        Err(e) => {
-            tracing::error!("failed to load tasks: {e}");
-            return;
-        }
-    };
-
-    let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
-
     loop {
         let now = Utc::now();
+        let tasks = match tasks::list_by_user_id(&pool, user.id).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                tracing::error!("failed to load tasks: {e}");
+                return;
+            }
+        };
+
+        let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
         let (task, next_run_at) = match eval_next_run(&tasks, tz) {
             Some(v) => v,
             None => break,
         };
 
         let scheduled_at = next_run_at.with_timezone(&tz);
-        tracing::info!(task_id = task.id, task_name = task.name, scheduled_at = %scheduled_at);
+        tracing::info!(
+            task_id = task.id, task_name = task.name,
+            scheduled_at = %scheduled_at,
+            connected_clients = tx.receiver_count(),
+        );
 
         let sleep_duration = next_run_at - now;
         tokio::time::sleep(sleep_duration.to_std().unwrap()).await;
@@ -169,6 +156,14 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             "scheduled_at": scheduled_at
         });
 
+        // NOTE: maybe drop scheduler if no clients connected more than 3 ticks
+        if tx.receiver_count() == 0 {
+            tracing::warn!(
+                user_id = user.id,
+                task_id = task.id,
+                "no connected clients, notification dropped"
+            );
+        }
         let _ = tx.send(msg.to_string());
     }
 }
