@@ -7,10 +7,10 @@ use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::{client_async, tungstenite};
 
-use habits_axum::{app, authentication, users};
+use habits_axum::{app, authentication};
 
 async fn insert_user(pool: &PgPool) {
-    let hash = crate::users::hash("pass").unwrap();
+    let hash = crate::authentication::hash("pass").unwrap();
     sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
         .bind("test@test.com")
         .bind(&hash)

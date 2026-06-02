@@ -5,6 +5,8 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, deco
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
+pub use bcrypt::verify;
+
 use crate::error::AppError;
 use crate::users::User;
 
@@ -88,6 +90,10 @@ pub fn decode_jwt(jwt_token: &str) -> Result<TokenData<Claims>, axum::http::Stat
         &Validation::default(),
     )
     .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub fn hash(input: &str) -> Result<String, bcrypt::BcryptError> {
+    bcrypt::hash(input, bcrypt::DEFAULT_COST)
 }
 
 pub fn build_cookie<'a>(key: &str, token: String) -> Cookie<'a> {

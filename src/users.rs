@@ -4,7 +4,6 @@ use axum::{
     http::StatusCode,
 };
 use axum_extra::extract::cookie::CookieJar;
-use bcrypt::verify;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -77,10 +76,12 @@ pub async fn create_session(
     let user = find_by_email(&state.pool, &user_data.email)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let authenticated = verify(&user_data.password, &user.password_hash).unwrap_or(false);
+    let authenticated =
+        crate::authentication::verify(&user_data.password, &user.password_hash).unwrap_or(false);
     if !authenticated {
         return Err(StatusCode::UNAUTHORIZED);
     }
+
     let jwt_token = encode_jwt(user.email).map_err(|_| StatusCode::UNAUTHORIZED)?;
     Ok((
         StatusCode::CREATED,
@@ -88,15 +89,12 @@ pub async fn create_session(
     ))
 }
 
-pub fn hash(input: &str) -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(input, bcrypt::DEFAULT_COST)
-}
-
 pub async fn create(
     State(state): State<Arc<crate::AppState>>,
     Json(payload): Json<CreateUserPayload>,
 ) -> Result<(StatusCode, Json<User>), StatusCode> {
-    let hashed_password = hash(&payload.password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let hashed_password = crate::authentication::hash(&payload.password)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let _valid_timezone: chrono_tz::Tz = payload.timezone.parse().map_err(|err| {
         tracing::error!("{err}");
         StatusCode::BAD_REQUEST
@@ -141,7 +139,7 @@ pub async fn create_device(
 
 pub async fn set_dev_password(pool: &PgPool) {
     if let Ok(dev_password) = env::var("DEV_PASSWORD") {
-        let hash = hash(&dev_password).unwrap();
+        let hash = crate::authentication::hash(&dev_password).unwrap();
         sqlx::query(
             "INSERT INTO users (handle, email, password_hash, inserted_at, updated_at)
              VALUES ($1, $2, $3, NOW(), NOW())
