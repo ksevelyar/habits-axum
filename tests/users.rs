@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use tower::{Service, ServiceExt};
 
 use habits_axum::app;
-use habits_axum::users;
+use habits_axum::authentication;
 
 async fn json_body(res: Response<Body>) -> Value {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
@@ -74,14 +74,14 @@ async fn create_device(pool: PgPool) {
     assert_eq!(body["device_name"], "esp32-display");
     let token = body["token"].as_str().unwrap().to_string();
 
-    let token_data = users::decode_jwt(token).unwrap();
+    let token_data = authentication::decode_jwt(&token).unwrap();
     assert_eq!(token_data.claims.email, "t@t.com");
     assert_eq!(token_data.claims.device_id, Some(device_id));
     assert_eq!(
         token_data.claims.device_name,
         Some("esp32-display".to_string())
     );
-    assert_eq!(token_data.claims.exp, usize::MAX);
+    assert_eq!(token_data.claims.exp, u64::MAX);
 }
 
 #[sqlx::test]
