@@ -15,21 +15,23 @@ use tower_http::trace::TraceLayer;
 
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
+use tokio::task::JoinHandle;
 
 #[derive(Debug)]
-struct UserEntry {
-    tx: broadcast::Sender<String>,
+struct UserChannel {
+    broadcast: broadcast::Sender<String>,
+    scheduler: JoinHandle<()>,
 }
 
 #[derive(Debug)]
 pub struct AppState {
-    users: RwLock<HashMap<i64, UserEntry>>,
+    channels: RwLock<HashMap<i64, UserChannel>>,
     pool: PgPool,
 }
 
 pub fn app(pool: PgPool) -> Router {
     let state = Arc::new(AppState {
-        users: RwLock::new(HashMap::new()),
+        channels: RwLock::new(HashMap::new()),
         pool,
     });
 

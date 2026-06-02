@@ -17,7 +17,7 @@ use crate::error::AppError;
 use crate::tasks;
 use crate::users;
 
-use crate::{AppState, UserEntry};
+use crate::{AppState, UserChannel};
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -88,21 +88,31 @@ async fn get_or_create_user_channel(
     state: Arc<AppState>,
     user: &users::User,
 ) -> broadcast::Sender<String> {
-    if let Some(tx) = {
-        let fast_path = state.users.read().await;
-        fast_path.get(&user.id).map(|entry| entry.tx.clone())
-    } {
-        return tx;
+    {
+        let fast_path = state.channels.read().await;
+        if let Some(entry) = fast_path.get(&user.id)
+            && !entry.scheduler.is_finished()
+        {
+            return entry.broadcast.clone();
+        }
     }
 
-    let mut slow_path = state.users.write().await;
-    if let Some(tx) = slow_path.get(&user.id).map(|entry| entry.tx.clone()) {
-        return tx;
+    let mut slow_path = state.channels.write().await;
+    if let Some(entry) = slow_path.get(&user.id)
+        && !entry.scheduler.is_finished()
+    {
+        return entry.broadcast.clone();
     }
 
     let (tx, _) = broadcast::channel::<String>(100);
-    tokio::spawn(user_scheduler(user.clone(), tx.clone(), state.pool.clone()));
-    slow_path.insert(user.id, UserEntry { tx: tx.clone() });
+    let scheduler = tokio::spawn(user_scheduler(user.clone(), tx.clone(), state.pool.clone()));
+    slow_path.insert(
+        user.id,
+        UserChannel {
+            broadcast: tx.clone(),
+            scheduler,
+        },
+    );
 
     tx
 }
@@ -123,6 +133,8 @@ fn eval_next_run(
 }
 
 async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: PgPool) {
+    let mut empty_ticks = 0;
+
     loop {
         let now = Utc::now();
         let tasks = match tasks::list_by_user_id(&pool, user.id).await {
@@ -156,14 +168,24 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             "scheduled_at": scheduled_at
         });
 
-        // NOTE: maybe drop scheduler if no clients connected more than 3 ticks
         if tx.receiver_count() == 0 {
             tracing::warn!(
                 user_id = user.id,
                 task_id = task.id,
                 "no connected clients, notification dropped"
             );
+            empty_ticks += 1;
+            if empty_ticks >= 3 {
+                tracing::warn!("no clients for 3 ticks, shutting down scheduler");
+                break;
+            }
+        } else {
+            empty_ticks = 0;
         }
-        let _ = tx.send(msg.to_string());
+
+        match tx.send(msg.to_string()) {
+            Ok(count) => tracing::info!(count, "notification sent"),
+            Err(e) => tracing::warn!(error = %e, "failed to send notification"),
+        }
     }
 }

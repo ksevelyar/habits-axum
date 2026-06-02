@@ -18,11 +18,12 @@
         pkgs = import nixpkgs {
           inherit system overlays;
         };
+        cargoToml = pkgs.lib.importTOML ./Cargo.toml;
       in
         with pkgs; {
           packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "habits-axum";
-            version = "0.1.0";
+            pname = cargoToml.package.name;
+            version = cargoToml.package.version;
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
 
