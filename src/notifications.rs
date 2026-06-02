@@ -151,10 +151,11 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             None => break,
         };
 
-        let scheduled_at = next_run_at.with_timezone(&tz);
+        let scheduled_time = next_run_at.with_timezone(&tz).format("%H:%M").to_string();
         tracing::info!(
-            task_id = task.id, task_name = task.name,
-            scheduled_at = %scheduled_at,
+            task_id = task.id,
+            task_name = task.name,
+            scheduled_time = scheduled_time,
             connected_clients = tx.receiver_count(),
         );
 
@@ -165,7 +166,7 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             "event": "TaskReminder",
             "task_id": task.id,
             "task_name": task.name,
-            "scheduled_at": scheduled_at
+            "scheduled_time": scheduled_time
         });
 
         if tx.receiver_count() == 0 {
