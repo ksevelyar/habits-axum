@@ -77,7 +77,7 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
                 match msg {
                     Some(Ok(Message::Pong(_))) => {
                         if let Some(sent) = pending_ping.take() {
-                            tracing::info!(
+                            tracing::debug!(
                                 user_id = user.id,
                                 elapsed_secs = sent.elapsed().as_secs_f64(),
                                 "pong received"
@@ -115,7 +115,7 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
                 if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     break;
                 }
-                tracing::info!(user_id = user.id, "ping sent");
+                tracing::debug!(user_id = user.id, "ping sent");
             }
         }
     }
