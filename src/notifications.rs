@@ -7,12 +7,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
-use chrono::{DateTime, Utc};
-use cron::Schedule;
+use chrono::Utc;
 use serde_json::json;
 use sqlx::PgPool;
-use std::str::FromStr;
 
+use crate::authentication;
 use crate::error::AppError;
 use crate::tasks;
 use crate::users;
@@ -29,18 +28,11 @@ pub async fn connect(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let token = cookie_jar.get("jwt").map(|c| c.value()).or_else(|| {
-        headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-    });
-
-    let Some(token) = token else {
+    let Some(token) = authentication::extract_token(&cookie_jar, &headers) else {
         return AppError::Unauthorized.into_response();
     };
 
-    let Ok(user) = users::authenticate_token(&state.pool, token).await else {
+    let Ok(user) = authentication::authenticate_token(&state.pool, token).await else {
         return AppError::Unauthorized.into_response();
     };
 
@@ -167,21 +159,6 @@ async fn get_or_create_user_channel(
     broadcast_tx
 }
 
-fn eval_next_run(
-    tasks: &[tasks::Task],
-    tz: chrono_tz::Tz,
-) -> Option<(&tasks::Task, DateTime<Utc>)> {
-    tasks
-        .iter()
-        .filter(|task| task.active)
-        .filter_map(|task| {
-            let schedule = Schedule::from_str(&task.cron).ok()?;
-            let next_run = schedule.upcoming(tz).next()?;
-            Some((task, next_run.with_timezone(&Utc)))
-        })
-        .min_by_key(|(_, next_run)| *next_run)
-}
-
 async fn user_scheduler(
     user: users::User,
     broadcast_tx: broadcast::Sender<String>,
@@ -192,20 +169,12 @@ async fn user_scheduler(
 
     loop {
         let now = Utc::now();
-        let tasks = match tasks::list_by_user_id(&pool, user.id).await {
-            Ok(tasks) => tasks,
-            Err(e) => {
-                tracing::error!("failed to load tasks: {e}");
-                break;
-            }
-        };
-
-        let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
-        let (task, next_run_at) = match eval_next_run(&tasks, tz) {
+        let (task, next_run_at) = match tasks::eval_next_notification(&pool, &user).await {
             Some(v) => v,
             None => break,
         };
 
+        let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
         let scheduled_time = next_run_at.with_timezone(&tz).format("%H:%M").to_string();
         tracing::info!(
             task_id = task.id,

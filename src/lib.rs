@@ -1,3 +1,4 @@
+pub mod authentication;
 pub mod chains;
 pub mod error;
 pub mod metrics;

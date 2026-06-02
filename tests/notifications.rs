@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::{client_async, tungstenite};
 
-use habits_axum::{app, users};
+use habits_axum::{app, authentication, users};
 
 async fn insert_user(pool: &PgPool) {
     let hash = crate::users::hash("pass").unwrap();
@@ -24,7 +24,7 @@ async fn insert_user(pool: &PgPool) {
 async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
     insert_user(&pool).await;
 
-    let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
+    let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
 
     let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
         .await
@@ -56,7 +56,7 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
 async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
     insert_user(&pool).await;
 
-    let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
+    let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
 
     let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
         .await
@@ -107,7 +107,7 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
 async fn send_three_cron_reminders(pool: PgPool) {
     insert_user(&pool).await;
 
-    let jwt = users::encode_jwt("test@test.com".to_string()).unwrap();
+    let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
 
     let (user_id,): (i64,) = sqlx::query_as("SELECT id FROM users WHERE email = $1")
         .bind("test@test.com")

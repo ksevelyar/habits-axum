@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use crate::authentication::authenticate_cookie;
 use crate::chains::ChainType;
 use crate::error::AppError;
-use crate::users::authenticate_user;
 
 #[derive(Serialize)]
 pub struct HistoryResponse {
@@ -77,7 +77,7 @@ pub async fn upsert(
     cookie_jar: CookieJar,
     Json(data): Json<UpdateMetricPayload>,
 ) -> Result<Json<Metric>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let chain_type = sqlx::query_scalar!(
         r#"
@@ -160,7 +160,7 @@ pub async fn delete(
     cookie_jar: CookieJar,
     Path(metric_id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
@@ -187,7 +187,7 @@ pub async fn get_by_date(
     cookie_jar: CookieJar,
     Query(params): Query<MetricsQuery>,
 ) -> Result<Json<Vec<MetricByDate>>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let rows = sqlx::query_as::<_, MetricByDate>(
         r#"
@@ -232,7 +232,7 @@ pub async fn history(
     State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<HistoryResponse>, AppError> {
-    let user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);

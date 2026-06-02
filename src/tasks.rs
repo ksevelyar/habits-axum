@@ -4,12 +4,16 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
+use cron::Schedule;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::authentication::authenticate_cookie;
 use crate::error::AppError;
-use crate::users::authenticate_user;
+use crate::users::User;
 
 #[derive(Deserialize)]
 pub struct TaskPayload {
@@ -36,7 +40,7 @@ pub async fn list(
     State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<Vec<Task>>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let tasks = sqlx::query_as::<_, Task>(
         r#"
@@ -71,12 +75,33 @@ pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, s
     .await
 }
 
+pub async fn eval_next_notification(pool: &PgPool, user: &User) -> Option<(Task, DateTime<Utc>)> {
+    let tasks = match list_by_user_id(pool, user.id).await {
+        Ok(tasks) => tasks,
+        Err(e) => {
+            tracing::error!("{e}");
+            return None;
+        }
+    };
+    let tz: Tz = user.timezone.parse().ok()?;
+
+    tasks
+        .into_iter()
+        .filter(|task| task.active)
+        .filter_map(|task| {
+            let schedule = Schedule::from_str(&task.cron).ok()?;
+            let next_run = schedule.upcoming(tz).next()?;
+            Some((task, next_run.with_timezone(&Utc)))
+        })
+        .min_by_key(|(_, next_run)| *next_run)
+}
+
 pub async fn create(
     State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     Json(data): Json<TaskPayload>,
 ) -> Result<(StatusCode, Json<Task>), AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -109,7 +134,7 @@ pub async fn show(
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Task>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     let task = find_task(&state.pool, current_user.id, task_id).await?;
 
     Ok(Json(task))
@@ -139,7 +164,7 @@ pub async fn update(
     Path(task_id): Path<i64>,
     Json(data): Json<TaskPayload>,
 ) -> Result<Json<Task>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let task = sqlx::query_as::<_, Task>(
         r#"
@@ -173,7 +198,7 @@ pub async fn delete(
     cookie_jar: CookieJar,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"

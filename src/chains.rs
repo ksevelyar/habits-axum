@@ -10,8 +10,8 @@ use sqlx::{PgPool, Type};
 
 use std::sync::Arc;
 
+use crate::authentication::authenticate_cookie;
 use crate::error::{AppError, FieldError};
-use crate::users::authenticate_user;
 
 #[derive(Debug, Clone, Copy, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "chain_type", rename_all = "lowercase")]
@@ -71,7 +71,7 @@ pub async fn list(
     State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<Vec<Chain>>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let chains = sqlx::query_as::<_, Chain>(
         r#"
@@ -97,7 +97,7 @@ pub async fn create(
     cookie_jar: CookieJar,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Chain>), AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let data: CreateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
         AppError::Validation(vec![FieldError {
@@ -143,7 +143,7 @@ pub async fn show(
     cookie_jar: CookieJar,
     Path(chain_id): Path<i64>,
 ) -> Result<Json<Chain>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     let chain = find_chain(&state.pool, current_user.id, chain_id).await?;
 
     Ok(Json(chain))
@@ -173,7 +173,7 @@ pub async fn update(
     Path(chain_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Result<Json<Chain>, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     let data: UpdateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
         AppError::Validation(vec![FieldError {
@@ -220,7 +220,7 @@ pub async fn delete(
     cookie_jar: CookieJar,
     Path(chain_id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_user(&state.pool, &cookie_jar).await?;
+    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
     sqlx::query(
         r#"
