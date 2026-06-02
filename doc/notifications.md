@@ -9,6 +9,9 @@
 6. Scheduler dies after 3 consecutive ticks with zero receivers, or when no active tasks remain
 7. Reconnecting client resumes — scheduler restarts on connect if dead
 
+## Heartbeat pings
+* server sends ping every 30s and terminates connection if pong not received before next ping
+
 ## Connect
 ```
 websocat -t - autoreconnect:ws://localhost:3003/websocket/notifications --header "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3ODA5MzY2NzcsImVtYWlsIjoia3NldmVseWFyQGdtYWlsLmNvbSIsImRldmljZV9pZCI6bnVsbCwiZGV2aWNlX25hbWUiOm51bGx9.ZDylN8H7MV0rV8Ya0ZYV-Iq0ny5NcI-MSkwaI3UER4A"

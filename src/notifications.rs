@@ -21,6 +21,7 @@ use crate::{AppState, UserChannel};
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio::time::{Duration, Instant};
 
 pub async fn connect(
     ws: WebSocketUpgrade,
@@ -47,41 +48,83 @@ pub async fn connect(
 }
 
 async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppState>) {
-    let tx = get_or_create_user_channel(state.clone(), &user).await;
-    let mut rx = tx.subscribe();
-
+    let user_channel = get_or_create_user_channel(state.clone(), &user).await;
+    let mut broadcast_rx = user_channel.subscribe();
     let (mut sender, mut receiver) = socket.split();
 
-    let ack = json!({"event": "UserAuthenticated", "user": user});
-    if let Err(e) = sender.send(Message::Text(ack.to_string().into())).await {
+    tracing::info!(
+        user_id = &user.id,
+        receiver_count = &user_channel.receiver_count(),
+        "websocket connected"
+    );
+
+    let user_authenticated = json!({"event": "UserAuthenticated", "user": user});
+    if let Err(e) = sender
+        .send(Message::Text(user_authenticated.to_string().into()))
+        .await
+    {
         tracing::warn!(user_id = user.id, error = %e, "failed to send UserAuthenticated");
         return;
     }
 
-    let mut send_task = tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            if let Err(e) = sender.send(Message::Text(msg.into())).await {
-                tracing::warn!(error = %e, "failed to send notification to client");
-                break;
+    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut pending_ping: Option<Instant> = None;
+
+    loop {
+        tokio::select! {
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Pong(_))) => {
+                        if let Some(sent) = pending_ping.take() {
+                            tracing::info!(
+                                user_id = user.id,
+                                elapsed_secs = sent.elapsed().as_secs_f64(),
+                                "pong received"
+                            );
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => continue,
+                }
+            }
+
+            msg = broadcast_rx.recv() => {
+                match msg {
+                    Ok(msg) => {
+                        if sender.send(Message::Text(msg.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(user_id = user.id, missed = n, "broadcast lag");
+                        continue;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+
+            _ = ping_interval.tick() => {
+                if pending_ping.replace(Instant::now()).is_some() {
+                    tracing::warn!(
+                        user_id = user.id,
+                        "pong not received within 30s interval, closing connection"
+                    );
+                    break;
+                }
+                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                    break;
+                }
+                tracing::info!(user_id = user.id, "ping sent");
             }
         }
-    });
+    }
 
-    let mut recv_task = tokio::spawn(async move {
-        while let Some(result) = receiver.next().await {
-            match result {
-                Ok(Message::Close(_)) | Err(_) => break,
-                Ok(_) => {}
-            }
-        }
-    });
-
-    tokio::select! {
-        _ = &mut send_task => recv_task.abort(),
-        _ = &mut recv_task => send_task.abort(),
-    };
-
-    tracing::info!(user_id = user.id, "disconnected");
+    tracing::info!(
+        user_id = user.id,
+        receiver_count = user_channel.receiver_count(),
+        "websocket disconnected"
+    );
 }
 
 async fn get_or_create_user_channel(
@@ -104,17 +147,24 @@ async fn get_or_create_user_channel(
         return entry.broadcast.clone();
     }
 
-    let (tx, _) = broadcast::channel::<String>(100);
-    let scheduler = tokio::spawn(user_scheduler(user.clone(), tx.clone(), state.pool.clone()));
+    let (broadcast_tx, _) = broadcast::channel::<String>(100);
+    let pool = state.pool.clone();
+    let scheduler_state = state.clone();
+    let scheduler = tokio::spawn(user_scheduler(
+        user.clone(),
+        broadcast_tx.clone(),
+        pool,
+        scheduler_state,
+    ));
     slow_path.insert(
         user.id,
         UserChannel {
-            broadcast: tx.clone(),
+            broadcast: broadcast_tx.clone(),
             scheduler,
         },
     );
 
-    tx
+    broadcast_tx
 }
 
 fn eval_next_run(
@@ -132,7 +182,12 @@ fn eval_next_run(
         .min_by_key(|(_, next_run)| *next_run)
 }
 
-async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: PgPool) {
+async fn user_scheduler(
+    user: users::User,
+    broadcast_tx: broadcast::Sender<String>,
+    pool: PgPool,
+    state: Arc<AppState>,
+) {
     let mut empty_ticks = 0;
 
     loop {
@@ -141,7 +196,7 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             Ok(tasks) => tasks,
             Err(e) => {
                 tracing::error!("failed to load tasks: {e}");
-                return;
+                break;
             }
         };
 
@@ -156,7 +211,7 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             task_id = task.id,
             task_name = task.name,
             scheduled_time = scheduled_time,
-            connected_clients = tx.receiver_count(),
+            connected_clients = broadcast_tx.receiver_count(),
         );
 
         let sleep_duration = next_run_at - now;
@@ -169,7 +224,7 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             "scheduled_time": scheduled_time
         });
 
-        if tx.receiver_count() == 0 {
+        if broadcast_tx.receiver_count() == 0 {
             tracing::warn!(
                 user_id = user.id,
                 task_id = task.id,
@@ -184,9 +239,12 @@ async fn user_scheduler(user: users::User, tx: broadcast::Sender<String>, pool: 
             empty_ticks = 0;
         }
 
-        match tx.send(msg.to_string()) {
+        match broadcast_tx.send(msg.to_string()) {
             Ok(count) => tracing::info!(count, "notification sent"),
             Err(e) => tracing::warn!(error = %e, "failed to send notification"),
         }
     }
+
+    let mut channels = state.channels.write().await;
+    channels.remove(&user.id);
 }
