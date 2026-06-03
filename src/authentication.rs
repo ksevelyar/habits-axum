@@ -1,5 +1,6 @@
 use axum::http::HeaderMap;
 use axum_extra::extract::cookie::Cookie;
+use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
@@ -19,26 +20,6 @@ pub struct Claims {
 }
 
 const SESSION_DURATION_SECONDS: u64 = 7 * 24 * 3600;
-
-pub async fn authenticate_cookie(
-    pool: &PgPool,
-    cookie_jar: &axum_extra::extract::cookie::CookieJar,
-) -> Result<User, AppError> {
-    let jwt = cookie_jar.get("jwt").ok_or(AppError::Unauthorized)?.value();
-    authenticate_token(pool, jwt).await
-}
-
-pub async fn authenticate_token(pool: &PgPool, token: &str) -> Result<User, AppError> {
-    let token_data = decode_jwt(token).map_err(|_| AppError::Unauthorized)?;
-    sqlx::query_as::<_, User>("SELECT id, email, timezone FROM users WHERE email = $1")
-        .bind(token_data.claims.email)
-        .fetch_one(pool)
-        .await
-        .map_err(|err| {
-            tracing::error!("{err}");
-            AppError::Unauthorized
-        })
-}
 
 pub fn encode_jwt(email: String) -> Result<String, axum::http::StatusCode> {
     let jwt_secret =
@@ -107,10 +88,24 @@ pub fn build_cookie<'a>(key: &str, token: String) -> Cookie<'a> {
         .build()
 }
 
-pub fn extract_token<'a>(
-    cookie_jar: &'a axum_extra::extract::cookie::CookieJar,
-    headers: &'a HeaderMap,
-) -> Option<&'a str> {
+pub async fn authenticate_cookie(pool: &PgPool, cookie_jar: &CookieJar) -> Result<User, AppError> {
+    let jwt = cookie_jar.get("jwt").ok_or(AppError::Unauthorized)?.value();
+    authenticate_token(pool, jwt).await
+}
+
+pub async fn authenticate_token(pool: &PgPool, token: &str) -> Result<User, AppError> {
+    let token_data = decode_jwt(token).map_err(|_| AppError::Unauthorized)?;
+    sqlx::query_as::<_, User>("SELECT id, email, timezone FROM users WHERE email = $1")
+        .bind(token_data.claims.email)
+        .fetch_one(pool)
+        .await
+        .map_err(|err| {
+            tracing::error!("{err}");
+            AppError::Unauthorized
+        })
+}
+
+pub fn extract_token<'a>(cookie_jar: &'a CookieJar, headers: &'a HeaderMap) -> Option<&'a str> {
     cookie_jar.get("jwt").map(|c| c.value()).or_else(|| {
         headers
             .get("authorization")
