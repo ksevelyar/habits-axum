@@ -1,6 +1,7 @@
 pub mod authentication;
 pub mod chains;
 pub mod error;
+pub mod handlers;
 pub mod metrics;
 pub mod notifications;
 pub mod tasks;
@@ -19,15 +20,15 @@ use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 
 #[derive(Debug)]
-struct UserChannel {
-    broadcast: broadcast::Sender<String>,
-    scheduler: JoinHandle<()>,
+pub struct UserChannel {
+    pub broadcast: broadcast::Sender<String>,
+    pub scheduler: JoinHandle<()>,
 }
 
 #[derive(Debug)]
 pub struct AppState {
-    channels: RwLock<HashMap<i64, UserChannel>>,
-    pool: PgPool,
+    pub channels: RwLock<HashMap<i64, UserChannel>>,
+    pub pool: PgPool,
 }
 
 pub fn app(pool: PgPool) -> Router {
@@ -48,25 +49,28 @@ pub fn app(pool: PgPool) -> Router {
         .allow_credentials(true);
 
     Router::new()
-        .route("/sessions", post(users::create_session))
-        .route("/sessions/current", get(users::current))
-        .route("/users", post(users::create))
-        .route("/devices", post(users::create_device))
-        .route("/chains", get(chains::list))
-        .route("/chains", post(chains::create))
-        .route("/chains/{chain_id}", patch(chains::update))
-        .route("/chains/{chain_id}", delete(chains::delete))
-        .route("/chains/{chain_id}", get(chains::show))
-        .route("/tasks", get(tasks::list))
-        .route("/tasks", post(tasks::create))
-        .route("/tasks/{task_id}", patch(tasks::update))
-        .route("/tasks/{task_id}", delete(tasks::delete))
-        .route("/tasks/{task_id}", get(tasks::show))
-        .route("/metrics", post(metrics::upsert))
-        .route("/metrics", get(metrics::get_by_date))
-        .route("/metrics_history", get(metrics::history))
-        .route("/metrics/{metric_id}", delete(metrics::delete))
-        .route("/websocket/notifications", get(notifications::connect))
+        .route("/sessions", post(handlers::users::create_session))
+        .route("/sessions/current", get(handlers::users::current))
+        .route("/users", post(handlers::users::create))
+        .route("/devices", post(handlers::users::create_device))
+        .route("/chains", get(handlers::chains::list))
+        .route("/chains", post(handlers::chains::create))
+        .route("/chains/{chain_id}", patch(handlers::chains::update))
+        .route("/chains/{chain_id}", delete(handlers::chains::delete))
+        .route("/chains/{chain_id}", get(handlers::chains::show))
+        .route("/tasks", get(handlers::tasks::list))
+        .route("/tasks", post(handlers::tasks::create))
+        .route("/tasks/{task_id}", patch(handlers::tasks::update))
+        .route("/tasks/{task_id}", delete(handlers::tasks::delete))
+        .route("/tasks/{task_id}", get(handlers::tasks::show))
+        .route("/metrics", post(handlers::metrics::upsert))
+        .route("/metrics", get(handlers::metrics::get_by_date))
+        .route("/metrics_history", get(handlers::metrics::history))
+        .route("/metrics/{metric_id}", delete(handlers::metrics::delete))
+        .route(
+            "/websocket/notifications",
+            get(handlers::notifications::connect),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)

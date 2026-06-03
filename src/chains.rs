@@ -1,17 +1,31 @@
-use axum::{
-    extract::{Json, Path, State},
-    http::StatusCode,
-};
-use axum_extra::extract::cookie::CookieJar;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::{PgPool, Type};
 
-use std::sync::Arc;
+use crate::error::AppError;
 
-use crate::authentication::authenticate_cookie;
-use crate::error::{AppError, FieldError};
+#[derive(Debug)]
+pub struct CreateChainInput {
+    pub user_id: i64,
+    pub active: bool,
+    pub name: String,
+    pub r#type: ChainType,
+    pub aggregate: ChainAggregate,
+    pub description: Option<String>,
+    pub order: Option<i32>,
+}
+
+#[derive(Debug)]
+pub struct UpdateChainInput {
+    pub user_id: i64,
+    pub chain_id: i64,
+    pub active: Option<bool>,
+    pub name: Option<String>,
+    pub r#type: Option<ChainType>,
+    pub aggregate: Option<ChainAggregate>,
+    pub description: Option<String>,
+    pub order: Option<i32>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "chain_type", rename_all = "lowercase")]
@@ -28,26 +42,6 @@ pub enum ChainType {
 pub enum ChainAggregate {
     Sum,
     Avg,
-}
-
-#[derive(Deserialize)]
-pub struct CreateChainPayload {
-    pub active: bool,
-    pub aggregate: ChainAggregate,
-    pub description: Option<String>,
-    pub name: String,
-    pub order: Option<i32>,
-    pub r#type: ChainType,
-}
-
-#[derive(Deserialize)]
-pub struct UpdateChainPayload {
-    pub active: Option<bool>,
-    pub aggregate: Option<ChainAggregate>,
-    pub description: Option<String>,
-    pub name: Option<String>,
-    pub order: Option<i32>,
-    pub r#type: Option<ChainType>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -67,13 +61,8 @@ pub struct Chain {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn list(
-    State(state): State<Arc<crate::AppState>>,
-    cookie_jar: CookieJar,
-) -> Result<Json<Vec<Chain>>, AppError> {
-    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-
-    let chains = sqlx::query_as::<_, Chain>(
+pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Chain>, sqlx::Error> {
+    sqlx::query_as::<_, Chain>(
         r#"
         SELECT *
         FROM chains
@@ -81,75 +70,12 @@ pub async fn list(
         ORDER BY id DESC
         "#,
     )
-    .bind(current_user.id)
-    .fetch_all(&state.pool)
+    .bind(user_id)
+    .fetch_all(pool)
     .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })?;
-
-    Ok(Json(chains))
 }
 
-pub async fn create(
-    State(state): State<Arc<crate::AppState>>,
-    cookie_jar: CookieJar,
-    Json(body): Json<Value>,
-) -> Result<(StatusCode, Json<Chain>), AppError> {
-    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-
-    let data: CreateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
-        AppError::Validation(vec![FieldError {
-            field: err.path().to_string(),
-            message: err.to_string(),
-        }])
-    })?;
-
-    let chain = sqlx::query_as::<_, Chain>(
-        r#"
-        INSERT INTO chains (
-            user_id,
-            active,
-            name,
-            type,
-            aggregate,
-            description,
-            "order"
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *
-        "#,
-    )
-    .bind(current_user.id)
-    .bind(data.active)
-    .bind(data.name)
-    .bind(data.r#type)
-    .bind(data.aggregate)
-    .bind(data.description)
-    .bind(data.order)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })?;
-
-    Ok((StatusCode::CREATED, Json(chain)))
-}
-
-pub async fn show(
-    State(state): State<Arc<crate::AppState>>,
-    cookie_jar: CookieJar,
-    Path(chain_id): Path<i64>,
-) -> Result<Json<Chain>, AppError> {
-    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    let chain = find_chain(&state.pool, current_user.id, chain_id).await?;
-
-    Ok(Json(chain))
-}
-
-async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain, AppError> {
+pub async fn find_by_id(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain, AppError> {
     sqlx::query_as::<_, Chain>(
         r#"
         SELECT *
@@ -167,22 +93,39 @@ async fn find_chain(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain,
     })
 }
 
-pub async fn update(
-    State(state): State<Arc<crate::AppState>>,
-    cookie_jar: CookieJar,
-    Path(chain_id): Path<i64>,
-    Json(body): Json<Value>,
-) -> Result<Json<Chain>, AppError> {
-    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
+pub async fn create(pool: &PgPool, payload: CreateChainInput) -> Result<Chain, AppError> {
+    sqlx::query_as::<_, Chain>(
+        r#"
+        INSERT INTO chains (
+            user_id,
+            active,
+            name,
+            type,
+            aggregate,
+            description,
+            "order"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *
+        "#,
+    )
+    .bind(payload.user_id)
+    .bind(payload.active)
+    .bind(&payload.name)
+    .bind(payload.r#type)
+    .bind(payload.aggregate)
+    .bind(payload.description)
+    .bind(payload.order)
+    .fetch_one(pool)
+    .await
+    .map_err(|err| {
+        tracing::error!("{err}");
+        AppError::BadRequest("database error".into())
+    })
+}
 
-    let data: UpdateChainPayload = serde_path_to_error::deserialize(body).map_err(|err| {
-        AppError::Validation(vec![FieldError {
-            field: err.path().to_string(),
-            message: err.to_string(),
-        }])
-    })?;
-
-    let chain = sqlx::query_as::<_, Chain>(
+pub async fn update(pool: &PgPool, payload: UpdateChainInput) -> Result<Chain, AppError> {
+    sqlx::query_as::<_, Chain>(
         r#"
         UPDATE chains
         SET
@@ -197,31 +140,23 @@ pub async fn update(
         RETURNING *
         "#,
     )
-    .bind(data.active)
-    .bind(data.name)
-    .bind(data.r#type)
-    .bind(data.aggregate)
-    .bind(data.description)
-    .bind(data.order)
-    .bind(chain_id)
-    .bind(current_user.id)
-    .fetch_one(&state.pool)
+    .bind(payload.active)
+    .bind(payload.name)
+    .bind(payload.r#type)
+    .bind(payload.aggregate)
+    .bind(payload.description)
+    .bind(payload.order)
+    .bind(payload.chain_id)
+    .bind(payload.user_id)
+    .fetch_one(pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
         AppError::BadRequest("database error".into())
-    })?;
-
-    Ok(Json(chain))
+    })
 }
 
-pub async fn delete(
-    State(state): State<Arc<crate::AppState>>,
-    cookie_jar: CookieJar,
-    Path(chain_id): Path<i64>,
-) -> Result<StatusCode, AppError> {
-    let current_user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-
+pub async fn delete(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<(), AppError> {
     sqlx::query(
         r#"
         DELETE FROM chains
@@ -229,13 +164,13 @@ pub async fn delete(
         "#,
     )
     .bind(chain_id)
-    .bind(current_user.id)
-    .execute(&state.pool)
+    .bind(user_id)
+    .execute(pool)
     .await
     .map_err(|err| {
         tracing::error!("{err}");
         AppError::BadRequest("database error".into())
     })?;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
