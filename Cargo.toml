@@ -19,7 +19,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 cookie = "0.18.1"
 serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4"] }
-cron = "0.13"
+cron = "0.16"
 futures-util = "0.3"
 chrono-tz = "0.10.4"
 

@@ -36,7 +36,10 @@
               cargo-watch
               websocat
               sqlx-cli
+
               rust-analyzer
+              postgres-language-server
+
               (rust-bin.stable.latest.default.override {
                 extensions = ["rust-src"];
               })
