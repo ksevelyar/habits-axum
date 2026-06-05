@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "tracing"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,6 +22,7 @@ uuid = { version = "1", features = ["v4"] }
 cron = "0.16"
 futures-util = "0.3"
 chrono-tz = "0.10.4"
+console-subscriber = "0.5.0"
 
 [dev-dependencies]
 tower = "0.5"

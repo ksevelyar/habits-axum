@@ -39,6 +39,7 @@
 
               rust-analyzer
               postgres-language-server
+              tokio-console
 
               (rust-bin.stable.latest.default.override {
                 extensions = ["rust-src"];
