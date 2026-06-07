@@ -1,6 +1,6 @@
 [package]
 name = "habits-axum"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 
 [dependencies]
@@ -13,7 +13,7 @@ axum-extra = { version = "0.12.6", features = ["cookie"]}
 bcrypt = "0.19.1"
 chrono = {version = "0.4.44", features = ["serde"]}
 jsonwebtoken = {version = "10.4.0", features = ["rust_crypto"]}
-tower-http = { version = "0.6", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 cookie = "0.18.1"
