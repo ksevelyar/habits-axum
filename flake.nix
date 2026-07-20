@@ -28,6 +28,7 @@
             cargoLock.lockFile = ./Cargo.lock;
 
             SQLX_OFFLINE = "true";
+            RUSTFLAGS = "--cfg tokio_unstable";
             doCheck = false;
           };
 
@@ -60,6 +61,7 @@
             ORIGIN = "http://habits.lcl:3000";
             RUST_LOG = "info";
             JWT_SECRET = "very secret";
+            RUSTFLAGS = "--cfg tokio_unstable";
           };
         }
     );
