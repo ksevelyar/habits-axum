@@ -65,11 +65,16 @@ pub async fn upsert(
             "true" => (None, None, Some(true)),
             "false" => (None, None, Some(false)),
             _ => {
-                return Err(AppError::BadRequest(
-                    "invalid boolean, use true/false".into(),
-                ));
+                return Err(AppError::BadRequest("invalid boolean, use true/false".into()));
             }
         },
+        ChainType::Time => {
+            let v = data
+                .value
+                .parse::<i64>()
+                .map_err(|_| AppError::BadRequest("invalid time in minutes".into()))?;
+            (Some(v), None, None)
+        }
     };
 
     crate::metrics::upsert_metric(
@@ -114,7 +119,5 @@ pub async fn history(
     cookie_jar: CookieJar,
 ) -> Result<Json<HistoryResponse>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::metrics::compute_history(&state.pool, user.id)
-        .await
-        .map(Json)
+    crate::metrics::compute_history(&state.pool, user.id).await.map(Json)
 }

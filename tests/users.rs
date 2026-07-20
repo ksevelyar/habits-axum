@@ -47,10 +47,7 @@ async fn session(pool: &PgPool) -> String {
         .ready()
         .await
         .unwrap()
-        .call(post_json(
-            "/sessions",
-            json!({"email": "t@t.com", "password": "x"}),
-        ))
+        .call(post_json("/sessions", json!({"email": "t@t.com", "password": "x"})))
         .await
         .unwrap();
     assert_eq!(create_session_response.status(), StatusCode::CREATED);
@@ -64,8 +61,7 @@ async fn create_device(pool: PgPool) {
     let mut app = app(pool.clone()).into_service();
 
     let mut req = post_json("/devices", json!({"device_name": "esp32-display"}));
-    req.headers_mut()
-        .insert(header::COOKIE, cookie.parse().unwrap());
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::CREATED);
 
@@ -77,10 +73,7 @@ async fn create_device(pool: PgPool) {
     let token_data = authentication::decode_jwt(&token).unwrap();
     assert_eq!(token_data.claims.email, "t@t.com");
     assert_eq!(token_data.claims.device_id, Some(device_id));
-    assert_eq!(
-        token_data.claims.device_name,
-        Some("esp32-display".to_string())
-    );
+    assert_eq!(token_data.claims.device_name, Some("esp32-display".to_string()));
     assert_eq!(token_data.claims.exp, u64::MAX);
 }
 
@@ -91,8 +84,7 @@ async fn create_device_with_invalid_params(pool: PgPool) {
 
     for payload in [json!({}), json!("not_an_object")] {
         let mut req = post_json("/devices", payload);
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         let res = app.ready().await.unwrap().call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }

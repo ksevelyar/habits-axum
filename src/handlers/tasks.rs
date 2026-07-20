@@ -18,10 +18,7 @@ pub struct TaskPayload {
     pub active: Option<bool>,
 }
 
-pub async fn list(
-    State(state): State<Arc<AppState>>,
-    cookie_jar: CookieJar,
-) -> Result<Json<Vec<Task>>, AppError> {
+pub async fn list(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Vec<Task>>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     crate::tasks::list_by_user_id(&state.pool, user.id)
         .await
@@ -48,15 +45,9 @@ pub async fn create(
         message: "cron is required".into(),
     }]))?;
 
-    crate::tasks::create(
-        &state.pool,
-        user.id,
-        &name,
-        &cron,
-        body.active.unwrap_or(false),
-    )
-    .await
-    .map(|task| (StatusCode::CREATED, Json(task)))
+    crate::tasks::create(&state.pool, user.id, &name, &cron, body.active.unwrap_or(false))
+        .await
+        .map(|task| (StatusCode::CREATED, Json(task)))
 }
 
 pub async fn show(
@@ -65,9 +56,7 @@ pub async fn show(
     Path(task_id): Path<i64>,
 ) -> Result<Json<Task>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::tasks::find_by_id(&state.pool, user.id, task_id)
-        .await
-        .map(Json)
+    crate::tasks::find_by_id(&state.pool, user.id, task_id).await.map(Json)
 }
 
 pub async fn update(
@@ -77,16 +66,9 @@ pub async fn update(
     Json(body): Json<TaskPayload>,
 ) -> Result<Json<Task>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::tasks::update(
-        &state.pool,
-        user.id,
-        task_id,
-        body.name,
-        body.cron,
-        body.active,
-    )
-    .await
-    .map(Json)
+    crate::tasks::update(&state.pool, user.id, task_id, body.name, body.cron, body.active)
+        .await
+        .map(Json)
 }
 
 pub async fn delete(

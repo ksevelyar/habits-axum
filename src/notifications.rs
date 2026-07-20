@@ -8,10 +8,7 @@ use crate::tasks;
 use crate::users;
 use crate::{AppState, UserChannel};
 
-pub async fn get_or_create_user_channel(
-    state: Arc<AppState>,
-    user: &users::User,
-) -> broadcast::Sender<String> {
+pub async fn get_or_create_user_channel(state: Arc<AppState>, user: &users::User) -> broadcast::Sender<String> {
     {
         let fast_path = state.channels.read().await;
         if let Some(entry) = fast_path.get(&user.id)

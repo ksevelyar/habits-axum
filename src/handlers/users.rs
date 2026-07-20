@@ -33,10 +33,7 @@ pub struct CreateDevicePayload {
     pub device_name: String,
 }
 
-pub async fn current(
-    State(state): State<Arc<AppState>>,
-    cookie_jar: CookieJar,
-) -> Result<Json<User>, AppError> {
+pub async fn current(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<User>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     Ok(Json(user))
 }
@@ -49,25 +46,21 @@ pub async fn create_session(
     let user = crate::users::find_by_email(&state.pool, &user_data.email)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let authenticated =
-        crate::authentication::verify(&user_data.password, &user.password_hash).unwrap_or(false);
+    let authenticated = crate::authentication::verify(&user_data.password, &user.password_hash).unwrap_or(false);
     if !authenticated {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
     let jwt_token = encode_jwt(user.email).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok((
-        StatusCode::CREATED,
-        cookie_jar.add(build_cookie("jwt", jwt_token)),
-    ))
+    Ok((StatusCode::CREATED, cookie_jar.add(build_cookie("jwt", jwt_token))))
 }
 
 pub async fn create(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateUserPayload>,
 ) -> Result<(StatusCode, Json<User>), StatusCode> {
-    let hashed_password = crate::authentication::hash(&payload.password)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let hashed_password =
+        crate::authentication::hash(&payload.password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let _valid_timezone: chrono_tz::Tz = payload.timezone.parse().map_err(|err| {
         tracing::error!("{err}");
         StatusCode::BAD_REQUEST

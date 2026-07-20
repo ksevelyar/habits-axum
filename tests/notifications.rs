@@ -32,11 +32,8 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
 
-    let uri: http::Uri = format!("ws://{addr}/websocket/notifications")
-        .parse()
-        .unwrap();
-    let builder =
-        tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
+    let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
+    let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
 
     let tcp = TcpStream::connect(addr).await.unwrap();
     let (mut socket, _) = client_async(builder, tcp).await.unwrap();
@@ -64,11 +61,8 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
 
-    let uri: http::Uri = format!("ws://{addr}/websocket/notifications")
-        .parse()
-        .unwrap();
-    let builder = tungstenite::ClientRequestBuilder::new(uri)
-        .with_header("Authorization", format!("Bearer {jwt}"));
+    let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
+    let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Authorization", format!("Bearer {jwt}"));
 
     let tcp = TcpStream::connect(addr).await.unwrap();
     let (mut socket, _) = client_async(builder, tcp).await.unwrap();
@@ -92,11 +86,8 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
 
-    let uri: http::Uri = format!("ws://{addr}/websocket/notifications")
-        .parse()
-        .unwrap();
-    let builder =
-        tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", "jwt=invalid.token.here");
+    let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
+    let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", "jwt=invalid.token.here");
 
     let tcp = TcpStream::connect(addr).await.unwrap();
     let result = client_async(builder, tcp).await;
@@ -132,11 +123,8 @@ async fn send_three_cron_reminders(pool: PgPool) {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
 
-    let uri: http::Uri = format!("ws://{addr}/websocket/notifications")
-        .parse()
-        .unwrap();
-    let builder =
-        tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
+    let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
+    let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
 
     let tcp = TcpStream::connect(addr).await.unwrap();
     let (mut socket, _) = client_async(builder, tcp).await.unwrap();
@@ -163,24 +151,13 @@ async fn send_three_cron_reminders(pool: PgPool) {
             Ok(Some(Ok(_))) => continue,
             Ok(Some(Err(e))) => panic!("ws error: {e}"),
             Ok(None) => break,
-            Err(_) => panic!(
-                "timeout waiting for task reminders, got {}/3",
-                reminders.len()
-            ),
+            Err(_) => panic!("timeout waiting for task reminders, got {}/3", reminders.len()),
         }
     }
 
-    assert_eq!(
-        reminders.len(),
-        3,
-        "got {} reminders: {reminders:?}",
-        reminders.len()
-    );
+    assert_eq!(reminders.len(), 3, "got {} reminders: {reminders:?}", reminders.len());
 
-    let task_ids: Vec<i64> = reminders
-        .iter()
-        .map(|r| r["task_id"].as_i64().unwrap())
-        .collect();
+    let task_ids: Vec<i64> = reminders.iter().map(|r| r["task_id"].as_i64().unwrap()).collect();
     let mut unique_ids = task_ids.clone();
     unique_ids.sort();
     unique_ids.dedup();

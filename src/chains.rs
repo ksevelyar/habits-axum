@@ -34,6 +34,7 @@ pub enum ChainType {
     Integer,
     Float,
     Boolean,
+    Time,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Type, Serialize, Deserialize)]

@@ -116,11 +116,7 @@ pub async fn delete_by_id(pool: &PgPool, metric_id: i64, user_id: i64) -> Result
     Ok(())
 }
 
-pub async fn list_by_date(
-    pool: &PgPool,
-    user_id: i64,
-    date: NaiveDate,
-) -> Result<Vec<MetricByDate>, sqlx::Error> {
+pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Result<Vec<MetricByDate>, sqlx::Error> {
     sqlx::query_as::<_, MetricByDate>(
         r#"
         SELECT
@@ -194,8 +190,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
     .await
     .map_err(|_| AppError::BadRequest("database error".into()))?;
 
-    let chain_aggs: HashMap<i64, String> =
-        chains.iter().map(|c| (c.id, c.aggregate.clone())).collect();
+    let chain_aggs: HashMap<i64, String> = chains.iter().map(|c| (c.id, c.aggregate.clone())).collect();
 
     #[derive(Default)]
     struct SprintAccum {
@@ -210,10 +205,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
         let s = &mut acc[idx];
         *s.sums.entry(m.chain_id).or_insert(0.0) += m.value;
         *s.counts.entry(m.chain_id).or_insert(0) += 1;
-        s.week
-            .entry(m.date.clone())
-            .or_default()
-            .insert(m.chain_id, m.clone());
+        s.week.entry(m.date.clone()).or_default().insert(m.chain_id, m.clone());
     }
 
     let sprints: Vec<SprintInfo> = acc
@@ -223,10 +215,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
 
             for (chain_id, sum) in a.sums {
                 let count = a.counts.get(&chain_id).copied().unwrap_or(0);
-                let agg = chain_aggs
-                    .get(&chain_id)
-                    .map(|s| s.as_str())
-                    .unwrap_or("sum");
+                let agg = chain_aggs.get(&chain_id).map(|s| s.as_str()).unwrap_or("sum");
 
                 let val = if agg == "avg" && count > 0 {
                     (sum / (count as f64) * 10.0).round() / 10.0
@@ -236,10 +225,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
                 total.insert(chain_id, val);
             }
 
-            SprintInfo {
-                total,
-                week: a.week,
-            }
+            SprintInfo { total, week: a.week }
         })
         .collect();
 

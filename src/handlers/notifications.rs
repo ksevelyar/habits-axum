@@ -47,10 +47,7 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
     );
 
     let user_authenticated = json!({"event": "UserAuthenticated", "user": user});
-    if let Err(e) = sender
-        .send(Message::Text(user_authenticated.to_string().into()))
-        .await
-    {
+    if let Err(e) = sender.send(Message::Text(user_authenticated.to_string().into())).await {
         tracing::warn!(user_id = user.id, error = %e, "failed to send UserAuthenticated");
         return;
     }

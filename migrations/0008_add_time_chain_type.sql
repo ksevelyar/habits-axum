@@ -1,0 +1,1 @@
+ALTER TYPE chain_type ADD VALUE IF NOT EXISTS 'time';

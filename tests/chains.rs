@@ -69,10 +69,7 @@ async fn session(pool: &PgPool) -> String {
         .ready()
         .await
         .unwrap()
-        .call(post_json(
-            "/sessions",
-            json!({"email": "t@t.com", "password": "x"}),
-        ))
+        .call(post_json("/sessions", json!({"email": "t@t.com", "password": "x"})))
         .await
         .unwrap();
     assert_eq!(create_session_response.status(), StatusCode::CREATED);
@@ -81,7 +78,7 @@ async fn session(pool: &PgPool) -> String {
 }
 
 #[sqlx::test]
-async fn create_chain(pool: PgPool) {
+async fn create_integer_chain(pool: PgPool) {
     let cookie = session(&pool).await;
     let mut app = app(pool.clone()).into_service();
 
@@ -97,8 +94,7 @@ async fn create_chain(pool: PgPool) {
                 "order": 5,
             }),
         );
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         app.ready().await.unwrap().call(req).await.unwrap()
     };
     assert_eq!(res.status(), StatusCode::CREATED);
@@ -115,6 +111,82 @@ async fn create_chain(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn create_float_chain(pool: PgPool) {
+    let cookie = session(&pool).await;
+    let mut app = app(pool.clone()).into_service();
+
+    let res = {
+        let mut req = post_json(
+            "/chains",
+            json!({
+                "active": true,
+                "name": "weight",
+                "type": "float",
+                "aggregate": "avg",
+            }),
+        );
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        app.ready().await.unwrap().call(req).await.unwrap()
+    };
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let body = json_body(res).await;
+    assert_eq!(body["type"], "float");
+    assert_eq!(body["name"], "weight");
+    assert_eq!(body["aggregate"], "avg");
+}
+
+#[sqlx::test]
+async fn create_boolean_chain(pool: PgPool) {
+    let cookie = session(&pool).await;
+    let mut app = app(pool.clone()).into_service();
+
+    let res = {
+        let mut req = post_json(
+            "/chains",
+            json!({
+                "active": true,
+                "name": "meditation",
+                "type": "boolean",
+                "aggregate": "sum",
+            }),
+        );
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        app.ready().await.unwrap().call(req).await.unwrap()
+    };
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let body = json_body(res).await;
+    assert_eq!(body["type"], "boolean");
+    assert_eq!(body["name"], "meditation");
+}
+
+#[sqlx::test]
+async fn create_time_chain(pool: PgPool) {
+    let cookie = session(&pool).await;
+    let mut app = app(pool.clone()).into_service();
+
+    let res = {
+        let mut req = post_json(
+            "/chains",
+            json!({
+                "active": true,
+                "name": "reading",
+                "type": "time",
+                "aggregate": "sum",
+            }),
+        );
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        app.ready().await.unwrap().call(req).await.unwrap()
+    };
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let body = json_body(res).await;
+    assert_eq!(body["type"], "time");
+    assert_eq!(body["name"], "reading");
+}
+
+#[sqlx::test]
 async fn create_chain_with_invalid_payload(pool: PgPool) {
     let cookie = session(&pool).await;
     let mut app = app(pool.clone()).into_service();
@@ -126,8 +198,7 @@ async fn create_chain_with_invalid_payload(pool: PgPool) {
         json!("not_an_object"),
     ] {
         let mut req = post_json("/chains", payload);
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         let res = app.ready().await.unwrap().call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -149,8 +220,7 @@ async fn update_chain(pool: PgPool) {
             "order": 1,
         }),
     );
-    req.headers_mut()
-        .insert(header::COOKIE, cookie.parse().unwrap());
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     let id = json_body(res).await["id"].as_i64().unwrap();
 
@@ -201,8 +271,7 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
             "active": true, "name": "x", "type": "integer", "aggregate": "sum",
         }),
     );
-    req.headers_mut()
-        .insert(header::COOKIE, cookie.parse().unwrap());
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     let id = json_body(res).await["id"].as_i64().unwrap();
 
@@ -210,11 +279,7 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
         .ready()
         .await
         .unwrap()
-        .call(patch_json(
-            &format!("/chains/{id}"),
-            json!({"type": "bad"}),
-            &cookie,
-        ))
+        .call(patch_json(&format!("/chains/{id}"), json!({"type": "bad"}), &cookie))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -231,8 +296,7 @@ async fn delete_chain(pool: PgPool) {
             "active": true, "name": "x", "type": "integer", "aggregate": "sum",
         }),
     );
-    req.headers_mut()
-        .insert(header::COOKIE, cookie.parse().unwrap());
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     let id = json_body(res).await["id"].as_i64().unwrap();
 
@@ -269,8 +333,7 @@ async fn show_chain(pool: PgPool) {
             "order": 3,
         }),
     );
-    req.headers_mut()
-        .insert(header::COOKIE, cookie.parse().unwrap());
+    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     let created = json_body(res).await;
     let id = created["id"].as_i64().unwrap();
@@ -299,8 +362,7 @@ async fn show_chains(pool: PgPool) {
 
     for payload in &items {
         let mut req = post_json("/chains", payload.clone());
-        req.headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         let res = app.ready().await.unwrap().call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::CREATED);
     }

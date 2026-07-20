@@ -32,10 +32,7 @@ pub struct UpdateChainPayload {
     pub r#type: Option<ChainType>,
 }
 
-pub async fn list(
-    State(state): State<Arc<AppState>>,
-    cookie_jar: CookieJar,
-) -> Result<Json<Vec<Chain>>, AppError> {
+pub async fn list(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Vec<Chain>>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     crate::chains::list_by_user_id(&state.pool, user.id)
         .await

@@ -38,12 +38,7 @@ pub fn app(pool: PgPool) -> Router {
     });
 
     let cors = CorsLayer::new()
-        .allow_origin(
-            std::env::var("ORIGIN")
-                .unwrap()
-                .parse::<HeaderValue>()
-                .unwrap(),
-        )
+        .allow_origin(std::env::var("ORIGIN").unwrap().parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([CONTENT_TYPE])
         .allow_credentials(true);
@@ -67,10 +62,7 @@ pub fn app(pool: PgPool) -> Router {
         .route("/metrics", get(handlers::metrics::get_by_date))
         .route("/metrics_history", get(handlers::metrics::history))
         .route("/metrics/{metric_id}", delete(handlers::metrics::delete))
-        .route(
-            "/websocket/notifications",
-            get(handlers::notifications::connect),
-        )
+        .route("/websocket/notifications", get(handlers::notifications::connect))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)

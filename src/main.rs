@@ -12,10 +12,7 @@ async fn main() {
         .await
         .expect("Failed to connect to DB");
 
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Migrations failed");
+    sqlx::migrate!().run(&pool).await.expect("Migrations failed");
 
     users::set_dev_password(&pool).await;
 

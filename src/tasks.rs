@@ -54,13 +54,7 @@ pub async fn find_by_id(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Tas
     })
 }
 
-pub async fn create(
-    pool: &PgPool,
-    user_id: i64,
-    name: &str,
-    cron: &str,
-    active: bool,
-) -> Result<Task, AppError> {
+pub async fn create(pool: &PgPool, user_id: i64, name: &str, cron: &str, active: bool) -> Result<Task, AppError> {
     sqlx::query_as::<_, Task>(
         r#"
         INSERT INTO tasks (

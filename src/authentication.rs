@@ -22,8 +22,7 @@ pub struct Claims {
 const SESSION_DURATION_SECONDS: u64 = 7 * 24 * 3600;
 
 pub fn encode_jwt(email: String) -> Result<String, axum::http::StatusCode> {
-    let jwt_secret =
-        std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     let exp = Utc::now().timestamp() as u64 + SESSION_DURATION_SECONDS;
     let claim = Claims {
         exp,
@@ -45,8 +44,7 @@ pub fn encode_device_jwt(
     device_id: String,
     device_name: String,
 ) -> Result<String, axum::http::StatusCode> {
-    let jwt_secret =
-        std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     let claim = Claims {
         exp: u64::MAX,
         email,
@@ -63,8 +61,7 @@ pub fn encode_device_jwt(
 }
 
 pub fn decode_jwt(jwt_token: &str) -> Result<TokenData<Claims>, axum::http::StatusCode> {
-    let jwt_secret =
-        std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     decode(
         jwt_token,
         &DecodingKey::from_secret(jwt_secret.as_ref()),
