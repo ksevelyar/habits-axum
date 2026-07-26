@@ -37,8 +37,14 @@ pub fn app(pool: PgPool) -> Router {
         pool,
     });
 
+    let cors_origins: Vec<HeaderValue> = std::env::var("CORS_ORIGINS")
+        .unwrap()
+        .split(',')
+        .map(|host| host.trim().parse().unwrap())
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(std::env::var("ORIGIN").unwrap().parse::<HeaderValue>().unwrap())
+        .allow_origin(cors_origins)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([CONTENT_TYPE])
         .allow_credentials(true);
