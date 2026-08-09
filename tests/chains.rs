@@ -255,7 +255,7 @@ async fn update_chain(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(row.name, "updated");
-    assert_eq!(row.active, false);
+    assert!(!row.active);
     assert_eq!(row.order, Some(10));
     assert_eq!(row.description.as_deref(), Some("original desc"));
 }

@@ -1,6 +1,6 @@
 use axum::{
     extract::{Json, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use axum_extra::extract::cookie::CookieJar;
 use chrono::NaiveDate;
@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::authentication::authenticate_cookie;
+use crate::authentication::{authenticate_cookie, authenticate_token, extract_token};
 use crate::chains::ChainType;
 use crate::error::AppError;
 use crate::metrics::{HistoryResponse, Metric, MetricByDate};
@@ -28,9 +28,11 @@ pub struct MetricsQuery {
 pub async fn upsert(
     State(state): State<Arc<AppState>>,
     cookie_jar: CookieJar,
+    headers: HeaderMap,
     Json(data): Json<UpdateMetricPayload>,
 ) -> Result<Json<Metric>, AppError> {
-    let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
+    let token = extract_token(&cookie_jar, &headers).ok_or(AppError::Unauthorized)?;
+    let user = authenticate_token(&state.pool, token).await?;
 
     let chain_type = sqlx::query_scalar!(
         r#"
