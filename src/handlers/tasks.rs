@@ -45,9 +45,11 @@ pub async fn create(
         message: "cron is required".into(),
     }]))?;
 
-    crate::tasks::create(&state.pool, user.id, &name, &cron, body.active.unwrap_or(false))
-        .await
-        .map(|task| (StatusCode::CREATED, Json(task)))
+    let task = crate::tasks::create(&state.pool, user.id, &name, &cron, body.active.unwrap_or(false)).await?;
+    if task.active {
+        crate::notifications::ensure_delivery(state.clone(), &user).await;
+    }
+    Ok((StatusCode::CREATED, Json(task)))
 }
 
 pub async fn show(
@@ -66,9 +68,11 @@ pub async fn update(
     Json(body): Json<TaskPayload>,
 ) -> Result<Json<Task>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::tasks::update(&state.pool, user.id, task_id, body.name, body.cron, body.active)
-        .await
-        .map(Json)
+    let task = crate::tasks::update(&state.pool, user.id, task_id, body.name, body.cron, body.active).await?;
+    if task.active {
+        crate::notifications::ensure_delivery(state.clone(), &user).await;
+    }
+    Ok(Json(task))
 }
 
 pub async fn delete(

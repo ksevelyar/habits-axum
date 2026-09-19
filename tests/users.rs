@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::{Service, ServiceExt};
 
-use habits_axum::app;
 use habits_axum::authentication;
+use habits_axum::build_app;
 
 async fn json_body(res: Response<Body>) -> Value {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
@@ -29,7 +29,7 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
 }
 
 async fn session(pool: &PgPool) -> String {
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let create_user_response = app
         .ready()
@@ -58,7 +58,7 @@ async fn session(pool: &PgPool) -> String {
 #[sqlx::test]
 async fn create_device(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let mut req = post_json("/devices", json!({"device_name": "esp32-display"}));
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
@@ -80,7 +80,7 @@ async fn create_device(pool: PgPool) {
 #[sqlx::test]
 async fn create_device_with_invalid_params(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     for payload in [json!({}), json!("not_an_object")] {
         let mut req = post_json("/devices", payload);

@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::{client_async, tungstenite};
 
-use habits_axum::{app, authentication};
+use habits_axum::{authentication, build_app};
 
 async fn insert_user(pool: &PgPool) {
     let hash = crate::authentication::hash("pass").unwrap();
@@ -30,7 +30,7 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
@@ -59,7 +59,7 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Authorization", format!("Bearer {jwt}"));
@@ -84,7 +84,7 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", "jwt=invalid.token.here");
@@ -121,7 +121,7 @@ async fn send_three_cron_reminders(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, app(pool.clone())).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));

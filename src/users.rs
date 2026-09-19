@@ -30,6 +30,13 @@ pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<BackendUser, sq
         .await
 }
 
+pub async fn find_by_id(pool: &PgPool, user_id: i64) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>("SELECT id, email, timezone FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
 pub async fn set_dev_password(pool: &PgPool) {
     if let Ok(dev_password) = env::var("DEV_PASSWORD") {
         let hash = crate::authentication::hash(&dev_password).unwrap();

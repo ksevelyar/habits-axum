@@ -17,6 +17,7 @@ pub enum AppError {
     Validation(Vec<FieldError>),
     BadRequest(String),
     Internal(String),
+    ServiceUnavailable(String),
 }
 
 impl IntoResponse for AppError {
@@ -30,6 +31,7 @@ impl IntoResponse for AppError {
             ),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, json!({"error": msg})),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": msg})),
+            AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, json!({"error": msg})),
         };
         (status, Json(body)).into_response()
     }
