@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::{Service, ServiceExt};
 
-use habits_axum::app;
+use habits_axum::build_app;
 
 async fn json_body(res: Response<Body>) -> Value {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
@@ -28,7 +28,7 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
 }
 
 async fn create_user(pool: &PgPool, email: &str) {
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
     let res = app
         .ready()
         .await
@@ -43,7 +43,7 @@ async fn create_user(pool: &PgPool, email: &str) {
 }
 
 async fn session(pool: &PgPool, email: &str) -> String {
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
     let res = app
         .ready()
         .await
@@ -56,7 +56,7 @@ async fn session(pool: &PgPool, email: &str) -> String {
 }
 
 async fn device_token(pool: &PgPool, cookie: &str) -> String {
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
     let mut req = post_json("/devices", json!({"device_name": "esp32-stepper"}));
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
@@ -65,7 +65,7 @@ async fn device_token(pool: &PgPool, cookie: &str) -> String {
 }
 
 async fn create_time_chain(pool: &PgPool, cookie: &str) -> i64 {
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
     let mut req = post_json(
         "/chains",
         json!({
@@ -95,7 +95,7 @@ async fn upsert_metric_with_device_token(pool: PgPool) {
     let cookie = session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
     let chain_id = create_time_chain(&pool, &cookie).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let res = app
         .ready()
@@ -127,7 +127,7 @@ async fn upsert_metric_replaces_same_date(pool: PgPool) {
     let cookie = session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
     let chain_id = create_time_chain(&pool, &cookie).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     for value in ["60", "90"] {
         let res = app
@@ -165,7 +165,7 @@ async fn upsert_metric_rejects_foreign_chain(pool: PgPool) {
     let cookie_b = session(&pool, "b@t.com").await;
     let token_b = device_token(&pool, &cookie_b).await;
     let chain_id = create_time_chain(&pool, &cookie_a).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let res = app
         .ready()
@@ -186,7 +186,7 @@ async fn upsert_metric_with_cookie_still_works(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let mut req = post_json(
         "/metrics",
@@ -202,7 +202,7 @@ async fn upsert_metric_without_auth_is_unauthorized(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;
-    let mut app = app(pool.clone()).into_service();
+    let mut app = build_app(pool.clone(), None).into_service();
 
     let res = app
         .ready()

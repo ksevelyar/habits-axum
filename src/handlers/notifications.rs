@@ -36,7 +36,7 @@ pub async fn connect(
 }
 
 async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppState>) {
-    let user_channel = crate::notifications::get_or_create_user_channel(state.clone(), &user).await;
+    let user_channel = crate::notifications::ensure_delivery(state.clone(), &user).await;
     let mut broadcast_rx = user_channel.subscribe();
     let (mut sender, mut receiver) = socket.split();
 

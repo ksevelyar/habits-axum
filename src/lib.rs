@@ -5,6 +5,7 @@ pub mod handlers;
 pub mod metrics;
 pub mod notifications;
 pub mod tasks;
+pub mod telegram;
 pub mod users;
 
 use axum::Router;
@@ -19,6 +20,8 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 
+use crate::telegram::TelegramClient;
+
 #[derive(Debug)]
 pub struct UserChannel {
     pub broadcast: broadcast::Sender<String>,
@@ -29,13 +32,18 @@ pub struct UserChannel {
 pub struct AppState {
     pub channels: RwLock<HashMap<i64, UserChannel>>,
     pub pool: PgPool,
+    pub telegram: Option<TelegramClient>,
 }
 
-pub fn app(pool: PgPool) -> Router {
+pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>) -> Router {
     let state = Arc::new(AppState {
         channels: RwLock::new(HashMap::new()),
         pool,
+        telegram,
     });
+
+    notifications::spawn_delivery_sweep(state.clone());
+    telegram::spawn_worker(state.clone());
 
     let cors_origins: Vec<HeaderValue> = std::env::var("CORS_ORIGINS")
         .unwrap()
@@ -68,6 +76,9 @@ pub fn app(pool: PgPool) -> Router {
         .route("/metrics", get(handlers::metrics::get_by_date))
         .route("/metrics_history", get(handlers::metrics::history))
         .route("/metrics/{metric_id}", delete(handlers::metrics::delete))
+        .route("/telegram/link", get(handlers::telegram::link))
+        .route("/telegram/link", post(handlers::telegram::request_link))
+        .route("/telegram/link", delete(handlers::telegram::unlink))
         .route("/websocket/notifications", get(handlers::notifications::connect))
         .layer(TraceLayer::new_for_http())
         .layer(cors)

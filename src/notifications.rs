@@ -5,10 +5,11 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::tasks;
+use crate::telegram;
 use crate::users;
 use crate::{AppState, UserChannel};
 
-pub async fn get_or_create_user_channel(state: Arc<AppState>, user: &users::User) -> broadcast::Sender<String> {
+pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadcast::Sender<String> {
     {
         let fast_path = state.channels.read().await;
         if let Some(entry) = fast_path.get(&user.id)
@@ -27,13 +28,8 @@ pub async fn get_or_create_user_channel(state: Arc<AppState>, user: &users::User
 
     let (broadcast_tx, _) = broadcast::channel::<String>(100);
     let pool = state.pool.clone();
-    let scheduler_state = state.clone();
-    let scheduler = tokio::spawn(user_scheduler(
-        user.clone(),
-        broadcast_tx.clone(),
-        pool,
-        scheduler_state,
-    ));
+    let delivery_state = state.clone();
+    let scheduler = tokio::spawn(delivery_loop(user.clone(), broadcast_tx.clone(), pool, delivery_state));
     slow_path.insert(
         user.id,
         UserChannel {
@@ -45,19 +41,11 @@ pub async fn get_or_create_user_channel(state: Arc<AppState>, user: &users::User
     broadcast_tx
 }
 
-async fn user_scheduler(
-    user: users::User,
-    broadcast_tx: broadcast::Sender<String>,
-    pool: PgPool,
-    state: Arc<AppState>,
-) {
-    let mut empty_ticks = 0;
-
+async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String>, pool: PgPool, state: Arc<AppState>) {
     loop {
         let now = Utc::now();
-        let (task, next_run_at) = match tasks::eval_next_notification(&pool, &user).await {
-            Some(v) => v,
-            None => break,
+        let Some((task, next_run_at)) = tasks::eval_next_notification(&pool, &user).await else {
+            break;
         };
 
         let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
@@ -72,6 +60,15 @@ async fn user_scheduler(
         let sleep_duration = next_run_at - now;
         tokio::time::sleep(sleep_duration.to_std().unwrap()).await;
 
+        if let Some(telegram_state) = &state.telegram
+            && let Ok(Some(chat_id)) = telegram::find_chat_id(&pool, user.id).await
+        {
+            let text = telegram::render_reminder(&task);
+            if let Err(error) = telegram_state.send_message(chat_id, &text).await {
+                tracing::warn!(?error, "failed to send telegram reminder");
+            }
+        }
+
         let msg = json!({
             "event": "TaskReminder",
             "task_id": task.id,
@@ -79,27 +76,36 @@ async fn user_scheduler(
             "scheduled_time": scheduled_time
         });
 
-        if broadcast_tx.receiver_count() == 0 {
-            tracing::warn!(
-                user_id = user.id,
-                task_id = task.id,
-                "no connected clients, notification dropped"
-            );
-            empty_ticks += 1;
-            if empty_ticks >= 3 {
-                tracing::warn!("no clients for 3 ticks, shutting down scheduler");
-                break;
-            }
-        } else {
-            empty_ticks = 0;
-        }
-
         match broadcast_tx.send(msg.to_string()) {
             Ok(count) => tracing::info!(count, "notification sent"),
-            Err(e) => tracing::warn!(error = %e, "failed to send notification"),
+            Err(error) => tracing::warn!(%error, "failed to send notification"),
         }
     }
 
     let mut channels = state.channels.write().await;
     channels.remove(&user.id);
+}
+
+pub fn spawn_delivery_sweep(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let users_with_active_tasks = sqlx::query_as::<_, users::User>(
+            r#"
+            SELECT DISTINCT u.id, u.email, u.timezone
+            FROM users u
+            JOIN tasks t ON t.user_id = u.id
+            WHERE t.active
+            "#,
+        )
+        .fetch_all(&state.pool)
+        .await;
+
+        match users_with_active_tasks {
+            Ok(users) => {
+                for user in users {
+                    ensure_delivery(state.clone(), &user).await;
+                }
+            }
+            Err(error) => tracing::error!("{error}"),
+        }
+    });
 }

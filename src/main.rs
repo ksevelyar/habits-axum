@@ -1,4 +1,4 @@
-use habits_axum::{app, users};
+use habits_axum::{build_app, telegram, users};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
@@ -19,5 +19,5 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
     tracing::info!("🐗 Listening on {}", listener.local_addr().unwrap());
 
-    axum::serve(listener, app(pool)).await.unwrap();
+    axum::serve(listener, build_app(pool, telegram::build())).await.unwrap();
 }

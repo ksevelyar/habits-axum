@@ -1,6 +1,6 @@
 [package]
 name = "habits-axum"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 
 [dependencies]
@@ -23,6 +23,7 @@ cron = "0.16"
 futures-util = "0.3"
 chrono-tz = "0.10.4"
 console-subscriber = "0.5.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks"] }
 
 [dev-dependencies]
 tower = "0.5"

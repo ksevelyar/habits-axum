@@ -13,7 +13,8 @@
               "Enum": [
                 "integer",
                 "float",
-                "boolean"
+                "boolean",
+                "time"
               ]
             }
           }
