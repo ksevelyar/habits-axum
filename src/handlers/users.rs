@@ -94,7 +94,7 @@ pub async fn create_device(
     let device_id = Uuid::new_v4().to_string();
     let device_name = payload.device_name;
     let token = encode_device_jwt(user.email, device_id.clone(), device_name.clone())
-        .map_err(|_| AppError::Internal("failed to generate token".into()))?;
+        .map_err(|_| AppError::ApplicationError("failed to generate token".into()))?;
     Ok((
         StatusCode::CREATED,
         Json(DeviceTokenResponse {

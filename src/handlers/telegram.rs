@@ -13,16 +13,10 @@ use crate::telegram;
 pub async fn link(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Value>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     if state.telegram.is_none() {
-        return Err(AppError::ServiceUnavailable("telegram is not configured".into()));
+        return Err(AppError::ConfigError("telegram is not configured".into()));
     }
 
-    let linked = telegram::find_chat_id(&state.pool, user.id)
-        .await
-        .map_err(|error| {
-            tracing::error!("{error}");
-            AppError::Internal("failed to read telegram link".into())
-        })?
-        .is_some();
+    let linked = telegram::find_chat_id(&state.pool, user.id).await?.is_some();
 
     Ok(Json(json!({
         "linked": linked,
@@ -32,15 +26,10 @@ pub async fn link(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> 
 pub async fn request_link(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Value>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     let Some(telegram_state) = &state.telegram else {
-        return Err(AppError::ServiceUnavailable("telegram is not configured".into()));
+        return Err(AppError::ConfigError("telegram is not configured".into()));
     };
 
-    let code = telegram::create_link_code(&state.pool, user.id)
-        .await
-        .map_err(|error| {
-            tracing::error!("{error}");
-            AppError::Internal("failed to create telegram link code".into())
-        })?;
+    let code = telegram::create_link_code(&state.pool, user.id).await?;
 
     Ok(Json(json!({
         "url": telegram::build_bot_link(telegram_state, &code),
@@ -50,14 +39,9 @@ pub async fn request_link(State(state): State<Arc<AppState>>, cookie_jar: Cookie
 pub async fn unlink(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<StatusCode, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
     if state.telegram.is_none() {
-        return Err(AppError::ServiceUnavailable("telegram is not configured".into()));
+        return Err(AppError::ConfigError("telegram is not configured".into()));
     }
 
-    telegram::clear_telegram_chat_id(&state.pool, user.id)
-        .await
-        .map_err(|error| {
-            tracing::error!("{error}");
-            AppError::Internal("failed to unlink telegram".into())
-        })?;
+    telegram::clear_telegram_chat_id(&state.pool, user.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

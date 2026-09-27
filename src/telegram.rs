@@ -5,9 +5,11 @@ pub use client::TelegramClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
+use tracing::Level;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::error::AppError;
 use crate::notifications;
 use crate::tasks::Task;
 use crate::users;
@@ -22,7 +24,8 @@ pub fn build_bot_link(telegram: &TelegramClient, code: &str) -> String {
     format!("https://t.me/{}?start={code}", telegram.bot_username)
 }
 
-pub async fn create_link_code(pool: &PgPool, user_id: i64) -> Result<String, sqlx::Error> {
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn create_link_code(pool: &PgPool, user_id: i64) -> Result<String, AppError> {
     let code = generate_link_code();
     sqlx::query("UPDATE users SET telegram_code = $1 WHERE id = $2")
         .bind(&code)
@@ -32,7 +35,8 @@ pub async fn create_link_code(pool: &PgPool, user_id: i64) -> Result<String, sql
     Ok(code)
 }
 
-pub async fn find_chat_id(pool: &PgPool, user_id: i64) -> Result<Option<i64>, sqlx::Error> {
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn find_chat_id(pool: &PgPool, user_id: i64) -> Result<Option<i64>, AppError> {
     let row: Option<(Option<i64>,)> = sqlx::query_as("SELECT telegram_chat_id FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_optional(pool)
@@ -40,7 +44,8 @@ pub async fn find_chat_id(pool: &PgPool, user_id: i64) -> Result<Option<i64>, sq
     Ok(row.and_then(|(chat_id,)| chat_id))
 }
 
-pub async fn clear_telegram_chat_id(pool: &PgPool, user_id: i64) -> Result<(), sqlx::Error> {
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn clear_telegram_chat_id(pool: &PgPool, user_id: i64) -> Result<(), AppError> {
     sqlx::query("UPDATE users SET telegram_chat_id = NULL WHERE id = $1")
         .bind(user_id)
         .execute(pool)
@@ -59,6 +64,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
     tokio::spawn(poll_inbox(state, telegram));
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 async fn consume_link_code(pool: &PgPool, code: &str) -> Result<Option<i64>, sqlx::Error> {
     let user_id: Option<i64> =
         sqlx::query_scalar("UPDATE users SET telegram_code = NULL WHERE telegram_code = $1 RETURNING id")
@@ -68,6 +74,7 @@ async fn consume_link_code(pool: &PgPool, code: &str) -> Result<Option<i64>, sql
     Ok(user_id)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 async fn set_telegram_chat_id(pool: &PgPool, user_id: i64, chat_id: i64) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE users SET telegram_chat_id = $1 WHERE id = $2")
         .bind(chat_id)

@@ -22,7 +22,7 @@ impl TelegramClient {
         }
     }
 
-    pub(in crate::telegram) fn from_env() -> Option<Self> {
+    pub fn from_env() -> Option<Self> {
         let bot_token = env::var("TELEGRAM_BOT_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty())?;
@@ -41,7 +41,7 @@ impl TelegramClient {
         })
     }
 
-    pub(in crate::telegram) async fn request_updates(&self, offset: i64) -> Result<Vec<Message>, reqwest::Error> {
+    pub async fn request_updates(&self, offset: i64) -> Result<Vec<Message>, reqwest::Error> {
         let url = format!("{}/bot{}/getUpdates", self.api_base_url, self.bot_token);
         let body = self
             .client
@@ -73,7 +73,7 @@ impl TelegramClient {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::telegram) struct Message {
+pub struct Message {
     pub id: i64,
     pub chat_id: i64,
     pub text: String,
