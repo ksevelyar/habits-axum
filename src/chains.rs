@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Type};
+use tracing::Level;
 
 use crate::error::AppError;
 
@@ -62,8 +63,9 @@ pub struct Chain {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Chain>, sqlx::Error> {
-    sqlx::query_as::<_, Chain>(
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Chain>, AppError> {
+    Ok(sqlx::query_as::<_, Chain>(
         r#"
         SELECT *
         FROM chains
@@ -73,9 +75,10 @@ pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Chain>, 
     )
     .bind(user_id)
     .fetch_all(pool)
-    .await
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn find_by_id(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Chain, AppError> {
     sqlx::query_as::<_, Chain>(
         r#"
@@ -86,16 +89,14 @@ pub async fn find_by_id(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<Ch
     )
     .bind(chain_id)
     .bind(user_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::NotFound("chain not found".into())
-    })
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound("chain not found".into()))
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn create(pool: &PgPool, payload: CreateChainInput) -> Result<Chain, AppError> {
-    sqlx::query_as::<_, Chain>(
+    Ok(sqlx::query_as::<_, Chain>(
         r#"
         INSERT INTO chains (
             user_id,
@@ -118,15 +119,12 @@ pub async fn create(pool: &PgPool, payload: CreateChainInput) -> Result<Chain, A
     .bind(payload.description)
     .bind(payload.order)
     .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn update(pool: &PgPool, payload: UpdateChainInput) -> Result<Chain, AppError> {
-    sqlx::query_as::<_, Chain>(
+    Ok(sqlx::query_as::<_, Chain>(
         r#"
         UPDATE chains
         SET
@@ -150,15 +148,12 @@ pub async fn update(pool: &PgPool, payload: UpdateChainInput) -> Result<Chain, A
     .bind(payload.chain_id)
     .bind(payload.user_id)
     .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn delete(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<(), AppError> {
-    sqlx::query(
+    let deletion = sqlx::query(
         r#"
         DELETE FROM chains
         WHERE id = $1 AND user_id = $2
@@ -167,11 +162,10 @@ pub async fn delete(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<(), Ap
     .bind(chain_id)
     .bind(user_id)
     .execute(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })?;
+    .await?;
 
+    if deletion.rows_affected() == 0 {
+        return Err(AppError::NotFound("chain not found".into()));
+    }
     Ok(())
 }

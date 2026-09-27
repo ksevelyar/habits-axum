@@ -20,13 +20,7 @@ pub struct TaskPayload {
 
 pub async fn list(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Vec<Task>>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::tasks::list_by_user_id(&state.pool, user.id)
-        .await
-        .map_err(|err| {
-            tracing::error!("{err}");
-            AppError::BadRequest("database error".into())
-        })
-        .map(Json)
+    Ok(Json(crate::tasks::list_by_user_id(&state.pool, user.id).await?))
 }
 
 pub async fn create(
@@ -58,7 +52,8 @@ pub async fn show(
     Path(task_id): Path<i64>,
 ) -> Result<Json<Task>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::tasks::find_by_id(&state.pool, user.id, task_id).await.map(Json)
+    let task = crate::tasks::find_by_id(&state.pool, user.id, task_id).await?;
+    Ok(Json(task))
 }
 
 pub async fn update(

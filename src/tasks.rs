@@ -4,6 +4,7 @@ use cron::Schedule;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::str::FromStr;
+use tracing::Level;
 
 use crate::error::AppError;
 use crate::users::User;
@@ -22,8 +23,9 @@ pub struct Task {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, sqlx::Error> {
-    sqlx::query_as::<_, Task>(
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, AppError> {
+    Ok(sqlx::query_as::<_, Task>(
         r#"
         SELECT *
         FROM tasks
@@ -33,9 +35,10 @@ pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Task>, s
     )
     .bind(user_id)
     .fetch_all(pool)
-    .await
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn find_by_id(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Task, AppError> {
     sqlx::query_as::<_, Task>(
         r#"
@@ -46,16 +49,14 @@ pub async fn find_by_id(pool: &PgPool, user_id: i64, task_id: i64) -> Result<Tas
     )
     .bind(task_id)
     .bind(user_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::NotFound("task not found".into())
-    })
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound("task not found".into()))
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn create(pool: &PgPool, user_id: i64, name: &str, cron: &str, active: bool) -> Result<Task, AppError> {
-    sqlx::query_as::<_, Task>(
+    Ok(sqlx::query_as::<_, Task>(
         r#"
         INSERT INTO tasks (
             user_id,
@@ -72,13 +73,10 @@ pub async fn create(pool: &PgPool, user_id: i64, name: &str, cron: &str, active:
     .bind(cron)
     .bind(active)
     .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn update(
     pool: &PgPool,
     user_id: i64,
@@ -87,7 +85,7 @@ pub async fn update(
     cron: Option<String>,
     active: Option<bool>,
 ) -> Result<Task, AppError> {
-    sqlx::query_as::<_, Task>(
+    Ok(sqlx::query_as::<_, Task>(
         r#"
         UPDATE tasks
         SET
@@ -105,15 +103,12 @@ pub async fn update(
     .bind(task_id)
     .bind(user_id)
     .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn delete(pool: &PgPool, user_id: i64, task_id: i64) -> Result<(), AppError> {
-    sqlx::query(
+    let deletion = sqlx::query(
         r#"
         DELETE FROM tasks
         WHERE id = $1 AND user_id = $2
@@ -122,31 +117,30 @@ pub async fn delete(pool: &PgPool, user_id: i64, task_id: i64) -> Result<(), App
     .bind(task_id)
     .bind(user_id)
     .execute(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })?;
+    .await?;
 
+    if deletion.rows_affected() == 0 {
+        return Err(AppError::NotFound("task not found".into()));
+    }
     Ok(())
 }
 
 pub async fn eval_next_notification(pool: &PgPool, user: &User) -> Option<(Task, DateTime<Utc>)> {
     let tasks = match list_by_user_id(pool, user.id).await {
         Ok(tasks) => tasks,
-        Err(e) => {
-            tracing::error!("{e}");
+        Err(error) => {
+            tracing::error!("{error}");
             return None;
         }
     };
-    let tz: Tz = user.timezone.parse().ok()?;
+    let timezone: Tz = user.timezone.parse().ok()?;
 
     tasks
         .into_iter()
         .filter(|task| task.active)
         .filter_map(|task| {
             let schedule = Schedule::from_str(&task.cron).ok()?;
-            let next_run = schedule.upcoming(tz).next()?;
+            let next_run = schedule.upcoming(timezone).next()?;
             Some((task, next_run.with_timezone(&Utc)))
         })
         .min_by_key(|(_, next_run)| *next_run)

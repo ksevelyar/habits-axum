@@ -2,6 +2,7 @@ use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
 use std::collections::{BTreeMap, HashMap};
+use tracing::Level;
 
 use crate::error::AppError;
 
@@ -53,6 +54,7 @@ pub struct MetricByDate {
     pub chain_id: i64,
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn upsert_metric(
     pool: &PgPool,
     chain_id: i64,
@@ -61,7 +63,7 @@ pub async fn upsert_metric(
     value_float: Option<f64>,
     value_bool: Option<bool>,
 ) -> Result<Metric, AppError> {
-    sqlx::query_as::<_, Metric>(
+    Ok(sqlx::query_as::<_, Metric>(
         r#"
         INSERT INTO metrics (
             chain_id,
@@ -88,15 +90,12 @@ pub async fn upsert_metric(
     .bind(value_float)
     .bind(value_bool)
     .fetch_one(pool)
-    .await
-    .map_err(|err| {
-        tracing::error!("{err}");
-        AppError::BadRequest("database error".into())
-    })
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn delete_by_id(pool: &PgPool, metric_id: i64, user_id: i64) -> Result<(), AppError> {
-    sqlx::query(
+    let deletion = sqlx::query(
         r#"
         DELETE FROM metrics
         WHERE id = $1
@@ -110,14 +109,17 @@ pub async fn delete_by_id(pool: &PgPool, metric_id: i64, user_id: i64) -> Result
     .bind(metric_id)
     .bind(user_id)
     .execute(pool)
-    .await
-    .map_err(|_| AppError::BadRequest("database error".into()))?;
+    .await?;
 
+    if deletion.rows_affected() == 0 {
+        return Err(AppError::NotFound("metric not found".into()));
+    }
     Ok(())
 }
 
-pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Result<Vec<MetricByDate>, sqlx::Error> {
-    sqlx::query_as::<_, MetricByDate>(
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Result<Vec<MetricByDate>, AppError> {
+    Ok(sqlx::query_as::<_, MetricByDate>(
         r#"
         SELECT
             m.id,
@@ -147,14 +149,15 @@ pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Resul
     .bind(date)
     .bind(user_id)
     .fetch_all(pool)
-    .await
+    .await?)
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryResponse, AppError> {
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
     let prev_week_start = week_start - Duration::days(7);
-    let week_start_str = week_start.to_string();
+    let week_start_string = week_start.to_string();
 
     let chains = sqlx::query_as!(
         ChainInfo,
@@ -167,8 +170,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
         user_id
     )
     .fetch_all(pool)
-    .await
-    .map_err(|_| AppError::BadRequest("database error".into()))?;
+    .await?;
 
     let metrics = sqlx::query_as!(
         MetricInfo,
@@ -187,10 +189,10 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
         prev_week_start
     )
     .fetch_all(pool)
-    .await
-    .map_err(|_| AppError::BadRequest("database error".into()))?;
+    .await?;
 
-    let chain_aggs: HashMap<i64, String> = chains.iter().map(|c| (c.id, c.aggregate.clone())).collect();
+    let chain_aggregates: HashMap<i64, String> =
+        chains.iter().map(|chain| (chain.id, chain.aggregate.clone())).collect();
 
     #[derive(Default)]
     struct SprintAccum {
@@ -198,39 +200,43 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
         counts: HashMap<i64, usize>,
         week: BTreeMap<String, HashMap<i64, MetricInfo>>,
     }
-    let mut acc = [SprintAccum::default(), SprintAccum::default()];
+    let mut accumulators = [SprintAccum::default(), SprintAccum::default()];
 
-    for m in &metrics {
-        let idx = if m.date >= week_start_str { 1 } else { 0 };
-        let s = &mut acc[idx];
-        *s.sums.entry(m.chain_id).or_insert(0.0) += m.value;
-        *s.counts.entry(m.chain_id).or_insert(0) += 1;
-        s.week.entry(m.date.clone()).or_default().insert(m.chain_id, m.clone());
+    for metric in &metrics {
+        let sprint_index = usize::from(metric.date >= week_start_string);
+        let accumulator = &mut accumulators[sprint_index];
+        *accumulator.sums.entry(metric.chain_id).or_insert(0.0) += metric.value;
+        *accumulator.counts.entry(metric.chain_id).or_insert(0) += 1;
+        accumulator
+            .week
+            .entry(metric.date.clone())
+            .or_default()
+            .insert(metric.chain_id, metric.clone());
     }
 
-    let sprints: Vec<SprintInfo> = acc
+    let sprints: Vec<SprintInfo> = accumulators
         .into_iter()
-        .map(|a| {
-            let mut total: HashMap<i64, f64> = chains.iter().map(|c| (c.id, 0.0)).collect();
+        .map(|accumulator| {
+            let mut total: HashMap<i64, f64> = chains.iter().map(|chain| (chain.id, 0.0)).collect();
 
-            for (chain_id, sum) in a.sums {
-                let count = a.counts.get(&chain_id).copied().unwrap_or(0);
-                let agg = chain_aggs.get(&chain_id).map(|s| s.as_str()).unwrap_or("sum");
+            for (chain_id, sum) in accumulator.sums {
+                let count = accumulator.counts.get(&chain_id).copied().unwrap_or(0);
+                let aggregate = chain_aggregates.get(&chain_id).map(String::as_str).unwrap_or("sum");
 
-                let val = if agg == "avg" && count > 0 {
+                let aggregated = if aggregate == "avg" && count > 0 {
                     (sum / (count as f64) * 10.0).round() / 10.0
                 } else {
                     sum
                 };
-                total.insert(chain_id, val);
+                total.insert(chain_id, aggregated);
             }
 
-            SprintInfo { total, week: a.week }
+            SprintInfo {
+                total,
+                week: accumulator.week,
+            }
         })
         .collect();
 
-    Ok(HistoryResponse {
-        chains,
-        sprints: { sprints },
-    })
+    Ok(HistoryResponse { chains, sprints })
 }

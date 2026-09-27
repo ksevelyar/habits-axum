@@ -34,13 +34,7 @@ pub struct UpdateChainPayload {
 
 pub async fn list(State(state): State<Arc<AppState>>, cookie_jar: CookieJar) -> Result<Json<Vec<Chain>>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::chains::list_by_user_id(&state.pool, user.id)
-        .await
-        .map_err(|err| {
-            tracing::error!("{err}");
-            AppError::BadRequest("database error".into())
-        })
-        .map(Json)
+    Ok(Json(crate::chains::list_by_user_id(&state.pool, user.id).await?))
 }
 
 pub async fn create(

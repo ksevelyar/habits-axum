@@ -107,13 +107,9 @@ pub async fn get_by_date(
     Query(params): Query<MetricsQuery>,
 ) -> Result<Json<Vec<MetricByDate>>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::metrics::list_by_date(&state.pool, user.id, params.date)
-        .await
-        .map_err(|err| {
-            tracing::error!("{err}");
-            AppError::BadRequest("database error".into())
-        })
-        .map(Json)
+    Ok(Json(
+        crate::metrics::list_by_date(&state.pool, user.id, params.date).await?,
+    ))
 }
 
 pub async fn history(
