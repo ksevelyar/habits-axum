@@ -59,7 +59,7 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>) -> Router {
 
     Router::new()
         .route("/sessions", post(handlers::users::create_session))
-        .route("/sessions/current", get(handlers::users::current))
+        .route("/sessions/current", get(handlers::users::show_current_user))
         .route("/users", post(handlers::users::create))
         .route("/devices", post(handlers::users::create_device))
         .route("/chains", get(handlers::chains::list))
@@ -74,7 +74,7 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>) -> Router {
         .route("/tasks/{task_id}", get(handlers::tasks::show))
         .route("/metrics", post(handlers::metrics::upsert))
         .route("/metrics", get(handlers::metrics::get_by_date))
-        .route("/metrics_history", get(handlers::metrics::history))
+        .route("/metrics_history", get(handlers::metrics::show_metrics_history))
         .route("/metrics/{metric_id}", delete(handlers::metrics::delete))
         .route("/telegram/link", get(handlers::telegram::link))
         .route("/telegram/link", post(handlers::telegram::request_link))

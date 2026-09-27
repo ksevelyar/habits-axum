@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::env;
+use tracing::Level;
 
 #[derive(Serialize, sqlx::FromRow, Debug, Clone)]
 pub struct User {
@@ -23,6 +24,7 @@ pub struct DeviceTokenResponse {
     pub token: String,
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<BackendUser, sqlx::Error> {
     sqlx::query_as::<_, BackendUser>("SELECT * FROM users WHERE email = $1")
         .bind(email)

@@ -112,7 +112,7 @@ pub async fn get_by_date(
     ))
 }
 
-pub async fn history(
+pub async fn show_metrics_history(
     State(state): State<Arc<AppState>>,
     cookie_jar: CookieJar,
 ) -> Result<Json<HistoryResponse>, AppError> {
