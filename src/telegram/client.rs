@@ -36,7 +36,8 @@ impl TelegramClient {
         Some(Self {
             client,
             bot_token,
-            bot_username: env::var("TELEGRAM_BOT_USERNAME").unwrap_or_default(),
+            bot_username: env::var("TELEGRAM_BOT_USERNAME")
+                .expect("TELEGRAM_BOT_USERNAME must be set when TELEGRAM_BOT_TOKEN is set"),
             api_base_url: env::var("TELEGRAM_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_string()),
         })
     }
