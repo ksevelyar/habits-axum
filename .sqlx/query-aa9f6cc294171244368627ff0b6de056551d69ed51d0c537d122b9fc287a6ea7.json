@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT m.id,\n               COALESCE(m.value_float, m.value_integer::float8,\n                        CASE WHEN m.value_bool THEN 1.0 ELSE 0.0 END)::float8 AS \"value!\",\n               m.date::text AS \"date!\",\n               c.name AS \"chain!\", c.id AS \"chain_id!\"\n        FROM metrics m\n        JOIN chains c ON c.id = m.chain_id\n        WHERE c.user_id = $1 AND c.active = true AND m.date >= $2\n        ORDER BY m.date ASC, c.id ASC\n        ",
+  "query": "\n        SELECT m.id,\n               COALESCE(m.value_float, m.value_integer::float8,\n                        CASE WHEN m.value_bool THEN 1.0 ELSE 0.0 END)::float8 AS \"value!\",\n               m.date,\n               c.name AS \"chain!\", c.id AS \"chain_id!\"\n        FROM metrics m\n        JOIN chains c ON c.id = m.chain_id\n        WHERE c.user_id = $1 AND c.active = true AND m.date >= $2\n        ORDER BY m.date ASC, c.id ASC\n        ",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,8 @@
       },
       {
         "ordinal": 2,
-        "name": "date!",
-        "type_info": "Text"
+        "name": "date",
+        "type_info": "Date"
       },
       {
         "ordinal": 3,
@@ -38,10 +38,10 @@
     "nullable": [
       false,
       null,
-      null,
+      false,
       false,
       false
     ]
   },
-  "hash": "590154c2f01b608f5fd63a8923b155bd102bd2f76e70eb488d5acd0dfa2a770b"
+  "hash": "aa9f6cc294171244368627ff0b6de056551d69ed51d0c537d122b9fc287a6ea7"
 }

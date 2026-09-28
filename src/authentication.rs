@@ -95,6 +95,15 @@ pub async fn authenticate_cookie(pool: &PgPool, cookie_jar: &CookieJar) -> Resul
     authenticate_token(pool, jwt).await
 }
 
+pub async fn authenticate_request(
+    pool: &PgPool,
+    cookie_jar: &CookieJar,
+    headers: &HeaderMap,
+) -> Result<User, AppError> {
+    let token = extract_token(cookie_jar, headers).ok_or(AppError::Unauthorized)?;
+    authenticate_token(pool, token).await
+}
+
 #[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn authenticate_token(pool: &PgPool, token: &str) -> Result<User, AppError> {
     let token_data = decode_jwt(token).map_err(|_| AppError::Unauthorized)?;

@@ -13,8 +13,7 @@ use tokio::sync::broadcast;
 use tokio::time::{Duration, Instant};
 
 use crate::AppState;
-use crate::authentication::{authenticate_token, extract_token};
-use crate::error::AppError;
+use crate::authentication::authenticate_request;
 use crate::users;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 
@@ -24,12 +23,9 @@ pub async fn connect(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let Some(token) = extract_token(&cookie_jar, &headers) else {
-        return AppError::Unauthorized.into_response();
-    };
-
-    let Ok(user) = authenticate_token(&state.pool, token).await else {
-        return AppError::Unauthorized.into_response();
+    let user = match authenticate_request(&state.pool, &cookie_jar, &headers).await {
+        Ok(user) => user,
+        Err(error) => return error.into_response(),
     };
 
     ws.on_upgrade(move |socket| handle_connection(socket, user, state))

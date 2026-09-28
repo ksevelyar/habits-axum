@@ -1,13 +1,35 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
+use cron::Schedule;
 use serde_json::json;
 use sqlx::PgPool;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::tasks;
+use crate::error::AppError;
+use crate::tasks::{self, Task};
 use crate::telegram;
 use crate::users;
 use crate::{AppState, UserChannel};
+
+async fn eval_next_notification(
+    pool: &PgPool,
+    user: &users::User,
+    timezone: Tz,
+) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
+    let tasks = tasks::list_by_user_id(pool, user.id).await?;
+
+    Ok(tasks
+        .into_iter()
+        .filter(|task| task.active)
+        .filter_map(|task| {
+            let schedule = Schedule::from_str(&task.cron).ok()?;
+            let next_run = schedule.upcoming(timezone).next()?;
+            Some((task, next_run.with_timezone(&Utc)))
+        })
+        .min_by_key(|(_, next_run)| *next_run))
+}
 
 pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadcast::Sender<String> {
     {
@@ -42,14 +64,21 @@ pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadc
 }
 
 async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String>, pool: PgPool, state: Arc<AppState>) {
+    let timezone: Tz = user.timezone.parse().expect("timezone is validated on insert");
     loop {
         let now = Utc::now();
-        let Some((task, next_run_at)) = tasks::eval_next_notification(&pool, &user).await else {
+        let next_notification = match eval_next_notification(&pool, &user, timezone).await {
+            Ok(next) => next,
+            Err(error) => {
+                tracing::error!(%error, "evaluating next notification failed");
+                None
+            }
+        };
+        let Some((task, next_run_at)) = next_notification else {
             break;
         };
 
-        let tz: chrono_tz::Tz = user.timezone.parse().unwrap();
-        let scheduled_time = next_run_at.with_timezone(&tz).format("%H:%M").to_string();
+        let scheduled_time = next_run_at.with_timezone(&timezone).format("%H:%M").to_string();
         tracing::info!(
             task_id = task.id,
             task_name = task.name,
@@ -57,8 +86,8 @@ async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String
             connected_clients = broadcast_tx.receiver_count(),
         );
 
-        let sleep_duration = next_run_at - now;
-        tokio::time::sleep(sleep_duration.to_std().unwrap()).await;
+        let sleep_duration = (next_run_at - now).to_std().expect("next run is in the future");
+        tokio::time::sleep(sleep_duration).await;
 
         if let Some(telegram_state) = &state.telegram
             && let Ok(Some(chat_id)) = telegram::find_chat_id(&pool, user.id).await

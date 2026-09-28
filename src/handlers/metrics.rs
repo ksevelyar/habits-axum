@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::authentication::{authenticate_cookie, authenticate_token, extract_token};
+use crate::authentication::{authenticate_cookie, authenticate_request};
 use crate::chains::ChainType;
 use crate::error::AppError;
 use crate::metrics::{HistoryResponse, Metric, MetricByDate};
@@ -31,22 +31,9 @@ pub async fn upsert(
     headers: HeaderMap,
     Json(data): Json<UpdateMetricPayload>,
 ) -> Result<Json<Metric>, AppError> {
-    let token = extract_token(&cookie_jar, &headers).ok_or(AppError::Unauthorized)?;
-    let user = authenticate_token(&state.pool, token).await?;
+    let user = authenticate_request(&state.pool, &cookie_jar, &headers).await?;
 
-    let chain_type = sqlx::query_scalar!(
-        r#"
-        SELECT type as "type: ChainType"
-        FROM chains
-        WHERE id = $1
-          AND user_id = $2
-        "#,
-        data.chain_id,
-        user.id
-    )
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| AppError::NotFound("chain not found".into()))?;
+    let chain_type = crate::chains::find_chain_type(&state.pool, user.id, data.chain_id).await?;
 
     let (value_integer, value_float, value_bool) = match chain_type {
         ChainType::Integer => {

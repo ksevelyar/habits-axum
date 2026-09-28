@@ -46,9 +46,13 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>) -> Router {
     telegram::spawn_worker(state.clone());
 
     let cors_origins: Vec<HeaderValue> = std::env::var("CORS_ORIGINS")
-        .unwrap()
+        .expect("CORS_ORIGINS must be set, e.g. http://localhost:5173")
         .split(',')
-        .map(|host| host.trim().parse().unwrap())
+        .map(|host| {
+            host.trim()
+                .parse()
+                .expect("CORS_ORIGINS entries must be valid origin URLs")
+        })
         .collect();
 
     let cors = CorsLayer::new()

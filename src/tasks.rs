@@ -1,13 +1,9 @@
 use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
-use cron::Schedule;
 use serde::Serialize;
 use sqlx::PgPool;
-use std::str::FromStr;
 use tracing::Level;
 
 use crate::error::AppError;
-use crate::users::User;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Task {
@@ -123,25 +119,4 @@ pub async fn delete(pool: &PgPool, user_id: i64, task_id: i64) -> Result<(), App
         return Err(AppError::NotFound("task not found".into()));
     }
     Ok(())
-}
-
-pub async fn eval_next_notification(pool: &PgPool, user: &User) -> Option<(Task, DateTime<Utc>)> {
-    let tasks = match list_by_user_id(pool, user.id).await {
-        Ok(tasks) => tasks,
-        Err(error) => {
-            tracing::error!("{error}");
-            return None;
-        }
-    };
-    let timezone: Tz = user.timezone.parse().ok()?;
-
-    tasks
-        .into_iter()
-        .filter(|task| task.active)
-        .filter_map(|task| {
-            let schedule = Schedule::from_str(&task.cron).ok()?;
-            let next_run = schedule.upcoming(timezone).next()?;
-            Some((task, next_run.with_timezone(&Utc)))
-        })
-        .min_by_key(|(_, next_run)| *next_run)
 }

@@ -23,14 +23,14 @@ pub struct ChainInfo {
 #[derive(Serialize)]
 pub struct SprintInfo {
     pub total: HashMap<i64, f64>,
-    pub week: BTreeMap<String, HashMap<i64, MetricInfo>>,
+    pub week: BTreeMap<NaiveDate, HashMap<i64, MetricInfo>>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct MetricInfo {
     pub id: i64,
     pub value: f64,
-    pub date: String,
+    pub date: NaiveDate,
     pub chain: String,
     pub chain_id: i64,
 }
@@ -157,7 +157,6 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
     let today = Utc::now().date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
     let prev_week_start = week_start - Duration::days(7);
-    let week_start_string = week_start.to_string();
 
     let chains = sqlx::query_as!(
         ChainInfo,
@@ -178,7 +177,7 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
         SELECT m.id,
                COALESCE(m.value_float, m.value_integer::float8,
                         CASE WHEN m.value_bool THEN 1.0 ELSE 0.0 END)::float8 AS "value!",
-               m.date::text AS "date!",
+               m.date,
                c.name AS "chain!", c.id AS "chain_id!"
         FROM metrics m
         JOIN chains c ON c.id = m.chain_id
@@ -198,18 +197,18 @@ pub async fn compute_history(pool: &PgPool, user_id: i64) -> Result<HistoryRespo
     struct SprintAccum {
         sums: HashMap<i64, f64>,
         counts: HashMap<i64, usize>,
-        week: BTreeMap<String, HashMap<i64, MetricInfo>>,
+        week: BTreeMap<NaiveDate, HashMap<i64, MetricInfo>>,
     }
     let mut accumulators = [SprintAccum::default(), SprintAccum::default()];
 
     for metric in &metrics {
-        let sprint_index = usize::from(metric.date >= week_start_string);
+        let sprint_index = usize::from(metric.date >= week_start);
         let accumulator = &mut accumulators[sprint_index];
         *accumulator.sums.entry(metric.chain_id).or_insert(0.0) += metric.value;
         *accumulator.counts.entry(metric.chain_id).or_insert(0) += 1;
         accumulator
             .week
-            .entry(metric.date.clone())
+            .entry(metric.date)
             .or_default()
             .insert(metric.chain_id, metric.clone());
     }

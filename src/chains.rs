@@ -64,6 +64,23 @@ pub struct Chain {
 }
 
 #[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn find_chain_type(pool: &PgPool, user_id: i64, chain_id: i64) -> Result<ChainType, AppError> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT type as "type: ChainType"
+        FROM chains
+        WHERE id = $1
+          AND user_id = $2
+        "#,
+        chain_id,
+        user_id
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| AppError::NotFound("chain not found".into()))
+}
+
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn list_by_user_id(pool: &PgPool, user_id: i64) -> Result<Vec<Chain>, AppError> {
     Ok(sqlx::query_as::<_, Chain>(
         r#"

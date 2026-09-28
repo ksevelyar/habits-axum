@@ -5,7 +5,6 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use sqlx::Error as SqlxError;
 use std::sync::Arc;
 use tracing::Level;
 use uuid::Uuid;
@@ -14,7 +13,7 @@ use crate::AppState;
 use crate::authentication::authenticate_cookie;
 use crate::authentication::{build_cookie, encode_device_jwt, encode_jwt};
 use crate::error::AppError;
-use crate::users::{DeviceTokenResponse, User};
+use crate::users::{CreatePayload, DeviceTokenResponse, User};
 
 #[derive(Deserialize)]
 pub struct CreateSessionPayload {
@@ -23,14 +22,6 @@ pub struct CreateSessionPayload {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct CreateUserPayload {
-    pub email: String,
-    pub handle: String,
-    pub password: String,
-    pub timezone: String,
-}
-
-#[derive(Deserialize)]
 pub struct CreateDevicePayload {
     pub device_name: String,
 }
@@ -49,11 +40,7 @@ pub async fn create_session(
     cookie_jar: CookieJar,
     Json(user_data): Json<CreateSessionPayload>,
 ) -> Result<(StatusCode, impl IntoResponse), AppError> {
-    let user = match crate::users::find_by_email(&state.pool, &user_data.email).await {
-        Ok(user) => user,
-        Err(SqlxError::RowNotFound) => return Err(AppError::Unauthorized),
-        Err(error) => return Err(error.into()),
-    };
+    let user = crate::users::find_by_email(&state.pool, &user_data.email).await?;
     let authenticated = crate::authentication::verify(&user_data.password, &user.password_hash).unwrap_or(false);
     if !authenticated {
         return Err(AppError::Unauthorized);
@@ -66,36 +53,9 @@ pub async fn create_session(
 #[tracing::instrument(skip(state, payload), err(level = Level::ERROR))]
 pub async fn create(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<CreateUserPayload>,
+    Json(payload): Json<CreatePayload>,
 ) -> Result<(StatusCode, Json<User>), AppError> {
-    let hashed_password = crate::authentication::hash(&payload.password)?;
-    let _valid_timezone: chrono_tz::Tz = payload.timezone.parse().map_err(|_| {
-        AppError::Validation(vec![crate::error::FieldError {
-            field: "timezone".into(),
-            message: "unknown timezone".into(),
-        }])
-    })?;
-
-    let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (email, password_hash, timezone, handle)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, email, timezone",
-    )
-    .bind(payload.email)
-    .bind(hashed_password)
-    .bind(payload.timezone)
-    .bind(payload.handle)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|error| match error {
-        SqlxError::Database(database_error) if database_error.is_unique_violation() => {
-            AppError::Validation(vec![crate::error::FieldError {
-                field: "email".into(),
-                message: "email is already taken".into(),
-            }])
-        }
-        error => error.into(),
-    })?;
+    let user = crate::users::create(&state.pool, payload).await?;
 
     Ok((StatusCode::CREATED, Json(user)))
 }
