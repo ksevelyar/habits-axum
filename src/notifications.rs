@@ -31,6 +31,27 @@ async fn eval_next_notification(
         .min_by_key(|(_, next_run)| *next_run))
 }
 
+pub async fn eval_last_notification(
+    pool: &PgPool,
+    user: &users::User,
+    timezone: Tz,
+) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
+    let tasks = tasks::list_by_user_id(pool, user.id).await?;
+
+    Ok(tasks
+        .into_iter()
+        .filter(|task| task.active)
+        .filter_map(|task| {
+            let schedule = Schedule::from_str(&task.cron).ok()?;
+            let last_run = schedule
+                .after(&chrono::Utc::now().with_timezone(&timezone))
+                .next_back()
+                .map(|run| run.with_timezone(&Utc));
+            last_run.map(|run| (task, run))
+        })
+        .max_by_key(|(_, last_run)| *last_run))
+}
+
 pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadcast::Sender<String> {
     {
         let fast_path = state.channels.read().await;

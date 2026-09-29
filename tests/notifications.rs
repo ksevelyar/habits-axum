@@ -9,15 +9,20 @@ use tokio_tungstenite::{client_async, tungstenite};
 
 use habits_axum::{authentication, build_app};
 
-async fn insert_user(pool: &PgPool) {
+async fn insert_user_with_timezone(pool: &PgPool, timezone: &str) {
     let hash = crate::authentication::hash("pass").unwrap();
-    sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (email, password_hash, handle, timezone) VALUES ($1, $2, $3, $4)")
         .bind("test@test.com")
         .bind(&hash)
         .bind("trinity")
+        .bind(timezone)
         .execute(pool)
         .await
         .unwrap();
+}
+
+async fn insert_user(pool: &PgPool) {
+    insert_user_with_timezone(pool, "UTC").await;
 }
 
 #[sqlx::test]
@@ -76,6 +81,66 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
     assert_eq!(response["event"], "UserAuthenticated");
     assert_eq!(response["user"]["email"], "test@test.com");
     assert!(response["user"]["id"].as_i64().is_some());
+}
+
+#[sqlx::test]
+async fn sends_last_notification_on_connect(pool: PgPool) {
+    insert_user_with_timezone(&pool, "Europe/Moscow").await;
+
+    let (user_id,): (i64,) = sqlx::query_as("SELECT id FROM users WHERE email = $1")
+        .bind("test@test.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    let evening_cron = "0 0 16 * * 1-5";
+    let morning_cron = "0 0 9 * * 3";
+
+    sqlx::query("INSERT INTO tasks (user_id, name, cron, active) VALUES ($1, $2, $3, true)")
+        .bind(user_id)
+        .bind("Evening Task")
+        .bind(evening_cron)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query("INSERT INTO tasks (user_id, name, cron, active) VALUES ($1, $2, $3, true)")
+        .bind(user_id)
+        .bind("Morning Task")
+        .bind(morning_cron)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
+
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+        .await
+        .unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+
+    let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
+    let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
+
+    let tcp = TcpStream::connect(addr).await.unwrap();
+    let (mut socket, _) = client_async(builder, tcp).await.unwrap();
+
+    let msg = match socket.next().await.unwrap().unwrap() {
+        tungstenite::Message::Text(msg) => msg,
+        other => panic!("expected text, got {other:?}"),
+    };
+    let authenticated: Value = serde_json::from_str(&msg).unwrap();
+    assert_eq!(authenticated["event"], "UserAuthenticated");
+
+    let msg = match socket.next().await.unwrap().unwrap() {
+        tungstenite::Message::Text(msg) => msg,
+        other => panic!("expected text, got {other:?}"),
+    };
+    let replay: Value = serde_json::from_str(&msg).unwrap();
+    assert_eq!(replay["event"], "TaskReminder");
+    assert_eq!(replay["task_name"], "Evening Task");
+    assert_eq!(replay["scheduled_time"], "16:00");
 }
 
 #[sqlx::test]

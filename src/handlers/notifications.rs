@@ -32,6 +32,7 @@ pub async fn connect(
 }
 
 async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppState>) {
+    let timezone: chrono_tz::Tz = user.timezone.parse().expect("timezone is validated on insert");
     let user_channel = crate::notifications::ensure_delivery(state.clone(), &user).await;
     let mut broadcast_rx = user_channel.subscribe();
     let (mut sender, mut receiver) = socket.split();
@@ -46,6 +47,26 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
     if let Err(e) = sender.send(Message::Text(user_authenticated.to_string().into())).await {
         tracing::warn!(user_id = user.id, error = %e, "failed to send UserAuthenticated");
         return;
+    }
+
+    if let Ok(Some((task, last_run_at))) =
+        crate::notifications::eval_last_notification(&state.pool, &user, timezone).await
+    {
+        let scheduled_time = last_run_at.with_timezone(&timezone).format("%H:%M").to_string();
+        let last_reminder = json!({
+            "event": "TaskReminder",
+            "task_id": task.id,
+            "task_name": task.name,
+            "scheduled_time": scheduled_time
+        });
+        if let Err(send_error) = sender.send(Message::Text(last_reminder.to_string().into())).await {
+            tracing::error!(
+                user_id = user.id,
+                error = %send_error,
+                "failed to send last task reminder"
+            );
+            return;
+        }
     }
 
     let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
