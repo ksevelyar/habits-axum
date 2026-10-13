@@ -5,10 +5,12 @@ use cookie::Cookie;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tower::{Service, ServiceExt};
 
 use habits_axum::build_app;
 use habits_axum::chains::Chain;
+use habits_axum::clock::SystemClock;
 
 async fn json_body(res: Response<Body>) -> Value {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
@@ -51,7 +53,7 @@ fn delete_req(uri: &str, cookie: &str) -> Request<Body> {
 }
 
 async fn session(pool: &PgPool) -> String {
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let create_user_response = app
         .ready()
@@ -80,7 +82,7 @@ async fn session(pool: &PgPool) -> String {
 #[sqlx::test]
 async fn create_integer_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
         let mut req = post_json(
@@ -113,7 +115,7 @@ async fn create_integer_chain(pool: PgPool) {
 #[sqlx::test]
 async fn create_float_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
         let mut req = post_json(
@@ -139,7 +141,7 @@ async fn create_float_chain(pool: PgPool) {
 #[sqlx::test]
 async fn create_boolean_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
         let mut req = post_json(
@@ -164,7 +166,7 @@ async fn create_boolean_chain(pool: PgPool) {
 #[sqlx::test]
 async fn create_time_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
         let mut req = post_json(
@@ -189,7 +191,7 @@ async fn create_time_chain(pool: PgPool) {
 #[sqlx::test]
 async fn create_chain_with_invalid_payload(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     for payload in [
         json!({"active": true}),
@@ -207,7 +209,7 @@ async fn create_chain_with_invalid_payload(pool: PgPool) {
 #[sqlx::test]
 async fn update_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let mut req = post_json(
         "/chains",
@@ -263,7 +265,7 @@ async fn update_chain(pool: PgPool) {
 #[sqlx::test]
 async fn update_chain_with_invalid_payload(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let mut req = post_json(
         "/chains",
@@ -288,7 +290,7 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
 #[sqlx::test]
 async fn delete_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let mut req = post_json(
         "/chains",
@@ -320,7 +322,7 @@ async fn delete_chain(pool: PgPool) {
 #[sqlx::test]
 async fn show_chain(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let mut req = post_json(
         "/chains",
@@ -352,7 +354,7 @@ async fn show_chain(pool: PgPool) {
 #[sqlx::test]
 async fn show_chains(pool: PgPool) {
     let cookie = session(&pool).await;
-    let mut app = build_app(pool.clone(), None).into_service();
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let items = vec![
         json!({"active": true, "name": "a", "type": "integer", "aggregate": "sum"}),

@@ -1,7 +1,9 @@
+use habits_axum::clock::SystemClock;
 use habits_axum::{build_app, telegram, users};
 use jiff::Zoned;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -41,5 +43,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
     tracing::info!("🐗 Listening on {}", listener.local_addr().unwrap());
 
-    axum::serve(listener, build_app(pool, telegram::build())).await.unwrap();
+    axum::serve(listener, build_app(pool, telegram::build(), Arc::new(SystemClock)))
+        .await
+        .unwrap();
 }

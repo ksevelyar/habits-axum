@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use tokio::time::{Duration, timeout};
 
 use habits_axum::build_app;
+use habits_axum::clock::SystemClock;
 use habits_axum::telegram::TelegramClient;
 
 const BOT_TOKEN: &str = "test-bot-token";
@@ -68,7 +69,7 @@ async fn start_app_with_mock_telegram_api(pool: PgPool, telegram_api_base_url: &
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool, Some(telegram))).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool, Some(telegram), Arc::new(SystemClock))).into_future());
     addr
 }
 

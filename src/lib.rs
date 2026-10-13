@@ -1,5 +1,6 @@
 pub mod authentication;
 pub mod chains;
+pub mod clock;
 pub mod error;
 pub mod handlers;
 pub mod metrics;
@@ -20,6 +21,7 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 
+use crate::clock::Clock;
 use crate::telegram::TelegramClient;
 
 #[derive(Debug)]
@@ -31,13 +33,15 @@ pub struct UserChannel {
 #[derive(Debug)]
 pub struct AppState {
     pub channels: RwLock<HashMap<i64, UserChannel>>,
+    pub clock: Arc<dyn Clock>,
     pub pool: PgPool,
     pub telegram: Option<TelegramClient>,
 }
 
-pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>) -> Router {
+pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>, clock: Arc<dyn Clock>) -> Router {
     let state = Arc::new(AppState {
         channels: RwLock::new(HashMap::new()),
+        clock,
         pool,
         telegram,
     });

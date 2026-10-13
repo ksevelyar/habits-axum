@@ -17,6 +17,7 @@ async fn eval_next_notification(
     pool: &PgPool,
     user: &users::User,
     timezone: Tz,
+    current_time: DateTime<Utc>,
 ) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
     let tasks = tasks::list_by_user_id(pool, user.id).await?;
 
@@ -25,7 +26,7 @@ async fn eval_next_notification(
         .filter(|task| task.active)
         .filter_map(|task| {
             let schedule = Schedule::from_str(&task.cron).ok()?;
-            let next_run = schedule.upcoming(timezone).next()?;
+            let next_run = schedule.after(&current_time.with_timezone(&timezone)).next()?;
             Some((task, next_run.with_timezone(&Utc)))
         })
         .min_by_key(|(_, next_run)| *next_run))
@@ -35,6 +36,7 @@ pub async fn eval_last_notification(
     pool: &PgPool,
     user: &users::User,
     timezone: Tz,
+    current_time: DateTime<Utc>,
 ) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
     let tasks = tasks::list_by_user_id(pool, user.id).await?;
 
@@ -44,7 +46,7 @@ pub async fn eval_last_notification(
         .filter_map(|task| {
             let schedule = Schedule::from_str(&task.cron).ok()?;
             let last_run = schedule
-                .after(&chrono::Utc::now().with_timezone(&timezone))
+                .after(&current_time.with_timezone(&timezone))
                 .next_back()
                 .map(|run| run.with_timezone(&Utc));
             last_run.map(|run| (task, run))
@@ -87,8 +89,8 @@ pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadc
 async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String>, pool: PgPool, state: Arc<AppState>) {
     let timezone: Tz = user.timezone.parse().expect("timezone is validated on insert");
     loop {
-        let now = Utc::now();
-        let next_notification = match eval_next_notification(&pool, &user, timezone).await {
+        let current_time = state.clock.read_current_time();
+        let next_notification = match eval_next_notification(&pool, &user, timezone, current_time).await {
             Ok(next) => next,
             Err(error) => {
                 tracing::error!(%error, "evaluating next notification failed");
@@ -107,7 +109,9 @@ async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String
             connected_clients = broadcast_tx.receiver_count(),
         );
 
-        let sleep_duration = (next_run_at - now).to_std().expect("next run is in the future");
+        let sleep_duration = (next_run_at - current_time)
+            .to_std()
+            .expect("next run is in the future");
         tokio::time::sleep(sleep_duration).await;
 
         if let Some(telegram_state) = &state.telegram

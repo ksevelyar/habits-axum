@@ -20,7 +20,7 @@ pub struct Claims {
     pub device_name: Option<String>,
 }
 
-const SESSION_DURATION_SECONDS: u64 = 7 * 24 * 3600;
+const SESSION_DURATION_SECONDS: u64 = 365 * 24 * 3600;
 
 fn read_jwt_secret() -> Result<String, AppError> {
     std::env::var("JWT_SECRET").map_err(|_| AppError::ConfigError("JWT_SECRET is not set".into()))

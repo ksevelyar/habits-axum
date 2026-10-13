@@ -49,8 +49,9 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
         return;
     }
 
+    let current_time = state.clock.read_current_time();
     if let Ok(Some((task, last_run_at))) =
-        crate::notifications::eval_last_notification(&state.pool, &user, timezone).await
+        crate::notifications::eval_last_notification(&state.pool, &user, timezone, current_time).await
     {
         let scheduled_time = last_run_at.with_timezone(&timezone).format("%H:%M").to_string();
         let last_reminder = json!({

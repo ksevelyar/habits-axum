@@ -1,13 +1,29 @@
 use axum::http;
+use chrono::{DateTime, TimeZone, Utc};
 use futures_util::StreamExt;
 use serde_json::Value;
 use sqlx::PgPool;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::{client_async, tungstenite};
 
-use habits_axum::{authentication, build_app};
+use habits_axum::{
+    authentication, build_app,
+    clock::{Clock, SystemClock},
+};
+
+#[derive(Debug)]
+struct FixedClock {
+    current_time: DateTime<Utc>,
+}
+
+impl Clock for FixedClock {
+    fn read_current_time(&self) -> DateTime<Utc> {
+        self.current_time
+    }
+}
 
 async fn insert_user_with_timezone(pool: &PgPool, timezone: &str) {
     let hash = crate::authentication::hash("pass").unwrap();
@@ -35,7 +51,7 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None, Arc::new(SystemClock))).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
@@ -64,7 +80,7 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None, Arc::new(SystemClock))).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Authorization", format!("Bearer {jwt}"));
@@ -85,6 +101,7 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
 
 #[sqlx::test]
 async fn sends_last_notification_on_connect(pool: PgPool) {
+    let fixed_time = Utc.with_ymd_and_hms(2025, 1, 8, 17, 0, 0).unwrap();
     insert_user_with_timezone(&pool, "Europe/Moscow").await;
 
     let (user_id,): (i64,) = sqlx::query_as("SELECT id FROM users WHERE email = $1")
@@ -118,7 +135,19 @@ async fn sends_last_notification_on_connect(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+    tokio::spawn(
+        axum::serve(
+            listener,
+            build_app(
+                pool.clone(),
+                None,
+                Arc::new(FixedClock {
+                    current_time: fixed_time,
+                }),
+            ),
+        )
+        .into_future(),
+    );
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
@@ -149,7 +178,7 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None, Arc::new(SystemClock))).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", "jwt=invalid.token.here");
@@ -186,7 +215,7 @@ async fn send_three_cron_reminders(pool: PgPool) {
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None)).into_future());
+    tokio::spawn(axum::serve(listener, build_app(pool.clone(), None, Arc::new(SystemClock))).into_future());
 
     let uri: http::Uri = format!("ws://{addr}/websocket/notifications").parse().unwrap();
     let builder = tungstenite::ClientRequestBuilder::new(uri).with_header("Cookie", format!("jwt={jwt}"));
