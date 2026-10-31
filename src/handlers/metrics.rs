@@ -1,6 +1,6 @@
 use axum::{
     extract::{Json, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
 };
 use axum_extra::extract::cookie::CookieJar;
 use chrono::NaiveDate;
@@ -25,6 +25,12 @@ pub struct MetricsQuery {
     pub date: NaiveDate,
 }
 
+#[derive(Deserialize)]
+pub struct DeleteMetricQuery {
+    pub date: NaiveDate,
+    pub chain_id: i64,
+}
+
 pub async fn upsert(
     State(state): State<Arc<AppState>>,
     cookie_jar: CookieJar,
@@ -37,32 +43,43 @@ pub async fn upsert(
 
     let (value_integer, value_float, value_bool) = match chain_type {
         ChainType::Integer => {
-            let v = data
+            let value = data
                 .value
                 .parse::<i64>()
                 .map_err(|_| AppError::BadRequest("invalid integer".into()))?;
-            (Some(v), None, None)
+            if value == 0 {
+                return Err(AppError::BadRequest("metric value cannot be zero".into()));
+            }
+            (Some(value), None, None)
         }
         ChainType::Float => {
-            let v = data
+            let value = data
                 .value
                 .parse::<f64>()
                 .map_err(|_| AppError::BadRequest("invalid float".into()))?;
-            (None, Some(v), None)
+            if value == 0.0 {
+                return Err(AppError::BadRequest("metric value cannot be zero".into()));
+            }
+            (None, Some(value), None)
         }
         ChainType::Boolean => match data.value.as_str() {
             "true" => (None, None, Some(true)),
-            "false" => (None, None, Some(false)),
+            "false" => {
+                return Err(AppError::BadRequest("boolean metric value cannot be false".into()));
+            }
             _ => {
                 return Err(AppError::BadRequest("invalid boolean, use true/false".into()));
             }
         },
         ChainType::Time => {
-            let v = data
+            let value = data
                 .value
                 .parse::<i64>()
                 .map_err(|_| AppError::BadRequest("invalid time in minutes".into()))?;
-            (Some(v), None, None)
+            if value == 0 {
+                return Err(AppError::BadRequest("metric value cannot be zero".into()));
+            }
+            (Some(value), None, None)
         }
     };
 
@@ -76,6 +93,20 @@ pub async fn upsert(
     )
     .await
     .map(Json)
+}
+
+pub async fn delete(
+    State(state): State<Arc<AppState>>,
+    cookie_jar: CookieJar,
+    headers: HeaderMap,
+    Query(params): Query<DeleteMetricQuery>,
+) -> Result<StatusCode, AppError> {
+    let user = authenticate_request(&state.pool, &cookie_jar, &headers).await?;
+
+    crate::chains::find_chain_type(&state.pool, user.id, params.chain_id).await?;
+    crate::metrics::delete_metric(&state.pool, params.chain_id, params.date).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_by_date(

@@ -94,6 +94,23 @@ pub async fn upsert_metric(
 }
 
 #[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+pub async fn delete_metric(pool: &PgPool, chain_id: i64, date: NaiveDate) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        DELETE FROM metrics
+        WHERE chain_id = $1
+          AND date = $2
+        "#,
+    )
+    .bind(chain_id)
+    .bind(date)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Result<Vec<MetricByDate>, AppError> {
     Ok(sqlx::query_as::<_, MetricByDate>(
         r#"
