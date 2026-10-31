@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use sqlx::types::Json;
 use tracing::Level;
 
-use crate::chains::ChainType;
+use crate::chains::{ChainAggregate, ChainType};
 use crate::error::AppError;
 
 #[derive(Deserialize, Serialize)]
@@ -17,6 +17,7 @@ pub struct ChartHistoryChain {
     pub id: i64,
     pub name: String,
     pub r#type: ChainType,
+    pub aggregate: ChainAggregate,
     pub points: Vec<ChartHistoryPoint>,
 }
 
@@ -42,6 +43,7 @@ pub async fn list_history(
                         'id', chains.id,
                         'name', chains.name,
                         'type', chains.type,
+                        'aggregate', chains.aggregate,
                         'points', COALESCE(chart_points.points, '[]'::jsonb)
                     )
                     ORDER BY chains."order" NULLS LAST, chains.id

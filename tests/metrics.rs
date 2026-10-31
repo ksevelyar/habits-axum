@@ -67,20 +67,24 @@ async fn device_token(pool: &PgPool, cookie: &str) -> String {
 }
 
 async fn create_time_chain(pool: &PgPool, cookie: &str) -> i64 {
+    create_chain(pool, cookie, "time").await
+}
+
+async fn create_chain(pool: &PgPool, cookie: &str, chain_type: &str) -> i64 {
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-    let mut req = post_json(
+    let mut request = post_json(
         "/chains",
         json!({
             "active": true,
-            "name": "walking",
-            "type": "time",
+            "name": format!("{chain_type} metric"),
+            "type": chain_type,
             "aggregate": "sum",
         }),
     );
-    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-    let res = app.ready().await.unwrap().call(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-    json_body(res).await["id"].as_i64().unwrap()
+    request.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+    let response = app.ready().await.unwrap().call(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    json_body(response).await["id"].as_i64().unwrap()
 }
 
 fn post_metric(uri: &str, body: Value, token: &str) -> Request<Body> {
@@ -157,6 +161,109 @@ async fn upsert_metric_replaces_same_date(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(value, 90);
+}
+
+#[sqlx::test]
+async fn reject_zero_empty_and_false_metric_values(pool: PgPool) {
+    create_user(&pool, "metric-validation@example.com").await;
+    let cookie = session(&pool, "metric-validation@example.com").await;
+    let token = device_token(&pool, &cookie).await;
+    let integer_chain_id = create_chain(&pool, &cookie, "integer").await;
+    let float_chain_id = create_chain(&pool, &cookie, "float").await;
+    let boolean_chain_id = create_chain(&pool, &cookie, "boolean").await;
+    let time_chain_id = create_chain(&pool, &cookie, "time").await;
+    let rejected_values = [
+        (integer_chain_id, "0"),
+        (float_chain_id, "0"),
+        (integer_chain_id, ""),
+        (boolean_chain_id, "false"),
+        (time_chain_id, "0"),
+    ];
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
+
+    for (chain_id, value) in rejected_values {
+        let response = app
+            .ready()
+            .await
+            .unwrap()
+            .call(post_metric(
+                "/metrics",
+                json!({"date": "2026-08-09", "value": value, "chain_id": chain_id}),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let valid_values = [
+        (integer_chain_id, "12"),
+        (float_chain_id, "1.5"),
+        (boolean_chain_id, "true"),
+        (time_chain_id, "30"),
+    ];
+
+    for (chain_id, value) in valid_values {
+        let response = app
+            .ready()
+            .await
+            .unwrap()
+            .call(post_metric(
+                "/metrics",
+                json!({"date": "2026-08-09", "value": value, "chain_id": chain_id}),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    for (chain_id, value) in rejected_values {
+        let response = app
+            .ready()
+            .await
+            .unwrap()
+            .call(post_metric(
+                "/metrics",
+                json!({"date": "2026-08-09", "value": value, "chain_id": chain_id}),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let metric_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metrics")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(metric_count, 4);
+
+    let integer_value: i32 = sqlx::query_scalar("SELECT value_integer FROM metrics WHERE chain_id = $1")
+        .bind(integer_chain_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let float_value: f64 = sqlx::query_scalar("SELECT value_float FROM metrics WHERE chain_id = $1")
+        .bind(float_chain_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let boolean_value: bool = sqlx::query_scalar("SELECT value_bool FROM metrics WHERE chain_id = $1")
+        .bind(boolean_chain_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let time_value: i32 = sqlx::query_scalar("SELECT value_integer FROM metrics WHERE chain_id = $1")
+        .bind(time_chain_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(integer_value, 12);
+    assert_eq!(float_value, 1.5);
+    assert!(boolean_value);
+    assert_eq!(time_value, 30);
 }
 
 #[sqlx::test]
