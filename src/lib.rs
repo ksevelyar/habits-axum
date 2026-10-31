@@ -85,7 +85,6 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>, clock: Arc<dyn 
         .route("/metrics", post(handlers::metrics::upsert))
         .route("/metrics", get(handlers::metrics::get_by_date))
         .route("/metrics_history", get(handlers::metrics::show_metrics_history))
-        .route("/metrics/{metric_id}", delete(handlers::metrics::delete))
         .route("/telegram/link", get(handlers::telegram::link))
         .route("/telegram/link", post(handlers::telegram::request_link))
         .route("/telegram/link", delete(handlers::telegram::unlink))
