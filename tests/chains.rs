@@ -104,6 +104,7 @@ async fn create_integer_chain(pool: PgPool) {
     let body = json_body(res).await;
     body["id"].as_i64().unwrap();
     assert_eq!(body["active"], true);
+    assert_eq!(body["show_in_charts"], false);
     assert_eq!(body["name"], "workout");
     assert_eq!(body["type"], "integer");
     assert_eq!(body["aggregate"], "sum");
@@ -125,6 +126,7 @@ async fn create_float_chain(pool: PgPool) {
                 "name": "weight",
                 "type": "float",
                 "aggregate": "avg",
+                "show_in_charts": true,
             }),
         );
         req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
@@ -134,6 +136,7 @@ async fn create_float_chain(pool: PgPool) {
 
     let body = json_body(res).await;
     assert_eq!(body["type"], "float");
+    assert_eq!(body["show_in_charts"], true);
     assert_eq!(body["name"], "weight");
     assert_eq!(body["aggregate"], "avg");
 }
@@ -235,6 +238,7 @@ async fn update_chain(pool: PgPool) {
             json!({
                 "name": "updated",
                 "active": false,
+                "show_in_charts": true,
                 "order": 10,
             }),
             &cookie,
@@ -246,6 +250,7 @@ async fn update_chain(pool: PgPool) {
     let body = json_body(res).await;
     assert_eq!(body["name"], "updated");
     assert_eq!(body["active"], false);
+    assert_eq!(body["show_in_charts"], true);
     assert_eq!(body["order"], 10);
     assert_eq!(body["description"], "original desc");
     assert_eq!(body["type"], "integer");
@@ -258,6 +263,7 @@ async fn update_chain(pool: PgPool) {
         .unwrap();
     assert_eq!(row.name, "updated");
     assert!(!row.active);
+    assert!(row.show_in_charts);
     assert_eq!(row.order, Some(10));
     assert_eq!(row.description.as_deref(), Some("original desc"));
 }
@@ -333,6 +339,7 @@ async fn show_chain(pool: PgPool) {
             "aggregate": "avg",
             "description": "hidden",
             "order": 3,
+            "show_in_charts": true,
         }),
     );
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
@@ -348,7 +355,9 @@ async fn show_chain(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(json_body(res).await, created);
+    let response_body = json_body(res).await;
+    assert_eq!(response_body, created);
+    assert_eq!(response_body["show_in_charts"], true);
 }
 
 #[sqlx::test]
@@ -358,7 +367,7 @@ async fn show_chains(pool: PgPool) {
 
     let items = vec![
         json!({"active": true, "name": "a", "type": "integer", "aggregate": "sum"}),
-        json!({"active": true, "name": "b", "type": "float", "aggregate": "avg"}),
+        json!({"active": true, "name": "b", "type": "float", "aggregate": "avg", "show_in_charts": true}),
         json!({"active": false, "name": "c", "type": "boolean", "aggregate": "sum"}),
     ];
 
@@ -382,6 +391,9 @@ async fn show_chains(pool: PgPool) {
     let list = list.as_array().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[0]["name"], "c");
+    assert_eq!(list[0]["show_in_charts"], false);
     assert_eq!(list[1]["name"], "b");
+    assert_eq!(list[1]["show_in_charts"], true);
     assert_eq!(list[2]["name"], "a");
+    assert_eq!(list[2]["show_in_charts"], false);
 }

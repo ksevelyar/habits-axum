@@ -16,6 +16,8 @@ use crate::error::{AppError, FieldError};
 pub struct CreateChainPayload {
     pub active: bool,
     pub aggregate: ChainAggregate,
+    #[serde(default)]
+    pub show_in_charts: bool,
     pub description: Option<String>,
     pub name: String,
     pub order: Option<i32>,
@@ -26,6 +28,7 @@ pub struct CreateChainPayload {
 pub struct UpdateChainPayload {
     pub active: Option<bool>,
     pub aggregate: Option<ChainAggregate>,
+    pub show_in_charts: Option<bool>,
     pub description: Option<String>,
     pub name: Option<String>,
     pub order: Option<i32>,
@@ -56,6 +59,7 @@ pub async fn create(
         CreateChainInput {
             user_id: user.id,
             active: data.active,
+            show_in_charts: data.show_in_charts,
             name: data.name,
             r#type: data.r#type,
             aggregate: data.aggregate,
@@ -99,6 +103,7 @@ pub async fn update(
             user_id: user.id,
             chain_id,
             active: data.active,
+            show_in_charts: data.show_in_charts,
             name: data.name,
             r#type: data.r#type,
             aggregate: data.aggregate,
