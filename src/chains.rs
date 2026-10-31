@@ -9,6 +9,7 @@ use crate::error::AppError;
 pub struct CreateChainInput {
     pub user_id: i64,
     pub active: bool,
+    pub show_in_charts: bool,
     pub name: String,
     pub r#type: ChainType,
     pub aggregate: ChainAggregate,
@@ -21,6 +22,7 @@ pub struct UpdateChainInput {
     pub user_id: i64,
     pub chain_id: i64,
     pub active: Option<bool>,
+    pub show_in_charts: Option<bool>,
     pub name: Option<String>,
     pub r#type: Option<ChainType>,
     pub aggregate: Option<ChainAggregate>,
@@ -52,6 +54,7 @@ pub struct Chain {
     pub user_id: i64,
 
     pub active: bool,
+    pub show_in_charts: bool,
     pub name: String,
     pub r#type: ChainType,
     pub aggregate: ChainAggregate,
@@ -118,18 +121,20 @@ pub async fn create(pool: &PgPool, payload: CreateChainInput) -> Result<Chain, A
         INSERT INTO chains (
             user_id,
             active,
+            show_in_charts,
             name,
             type,
             aggregate,
             description,
             "order"
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
         "#,
     )
     .bind(payload.user_id)
     .bind(payload.active)
+    .bind(payload.show_in_charts)
     .bind(&payload.name)
     .bind(payload.r#type)
     .bind(payload.aggregate)
@@ -146,17 +151,19 @@ pub async fn update(pool: &PgPool, payload: UpdateChainInput) -> Result<Chain, A
         UPDATE chains
         SET
             active = COALESCE($1, active),
-            name = COALESCE($2, name),
-            type = COALESCE($3, type),
-            aggregate = COALESCE($4, aggregate),
-            description = COALESCE($5, description),
-            "order" = COALESCE($6, "order"),
+            show_in_charts = COALESCE($2, show_in_charts),
+            name = COALESCE($3, name),
+            type = COALESCE($4, type),
+            aggregate = COALESCE($5, aggregate),
+            description = COALESCE($6, description),
+            "order" = COALESCE($7, "order"),
             updated_at = NOW()
-        WHERE id = $7 AND user_id = $8
+        WHERE id = $8 AND user_id = $9
         RETURNING *
         "#,
     )
     .bind(payload.active)
+    .bind(payload.show_in_charts)
     .bind(payload.name)
     .bind(payload.r#type)
     .bind(payload.aggregate)

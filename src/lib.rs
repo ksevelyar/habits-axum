@@ -1,5 +1,6 @@
 pub mod authentication;
 pub mod chains;
+pub mod charts;
 pub mod clock;
 pub mod error;
 pub mod handlers;
@@ -75,6 +76,7 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>, clock: Arc<dyn 
         .route("/chains/{chain_id}", patch(handlers::chains::update))
         .route("/chains/{chain_id}", delete(handlers::chains::delete))
         .route("/chains/{chain_id}", get(handlers::chains::show))
+        .route("/charts", get(handlers::charts::show_history))
         .route("/tasks", get(handlers::tasks::list))
         .route("/tasks", post(handlers::tasks::create))
         .route("/tasks/{task_id}", patch(handlers::tasks::update))
