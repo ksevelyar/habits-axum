@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Json, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Json, Query, State},
+    http::HeaderMap,
 };
 use axum_extra::extract::cookie::CookieJar;
 use chrono::NaiveDate;
@@ -76,16 +76,6 @@ pub async fn upsert(
     )
     .await
     .map(Json)
-}
-
-pub async fn delete(
-    State(state): State<Arc<AppState>>,
-    cookie_jar: CookieJar,
-    Path(metric_id): Path<i64>,
-) -> Result<StatusCode, AppError> {
-    let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
-    crate::metrics::delete_by_id(&state.pool, metric_id, user.id).await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_by_date(

@@ -94,30 +94,6 @@ pub async fn upsert_metric(
 }
 
 #[tracing::instrument(skip(pool), err(level = Level::ERROR))]
-pub async fn delete_by_id(pool: &PgPool, metric_id: i64, user_id: i64) -> Result<(), AppError> {
-    let deletion = sqlx::query(
-        r#"
-        DELETE FROM metrics
-        WHERE id = $1
-          AND chain_id IN (
-              SELECT id
-              FROM chains
-              WHERE user_id = $2
-          )
-        "#,
-    )
-    .bind(metric_id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
-
-    if deletion.rows_affected() == 0 {
-        return Err(AppError::NotFound("metric not found".into()));
-    }
-    Ok(())
-}
-
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 pub async fn list_by_date(pool: &PgPool, user_id: i64, date: NaiveDate) -> Result<Vec<MetricByDate>, AppError> {
     Ok(sqlx::query_as::<_, MetricByDate>(
         r#"
