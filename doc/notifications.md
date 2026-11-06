@@ -1,40 +1,89 @@
 # Notifications
+## Requirements
+* `GET /websocket/notifications` authenticates with a `jwt` cookie or `Authorization: Bearer` device token.
+* A connected client first receives `UserAuthenticated`.
+* Active tasks produce `TaskReminder` events at their cron times in the user's timezone.
+* The server sends a WebSocket ping every 30 seconds and closes a connection that does not answer before the next ping.
+* Telegram features require `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME`. `TELEGRAM_PROXY` is optional.
+* `GET`, `POST`, and `DELETE /telegram/link` require a session cookie.
+* A user completes linking by sending `/link 6fdb21dd-7f0d-4651-86f8-0c30e10e6c19` to the bot.
+* A reminder is delivered to linked Telegram chats before WebSocket broadcast.
 
-## Websocket Notifications
-### Flow
-1. Client connects via WebSocket to `/websocket/notifications`
-2. Auth via JWT (cookie `jwt` or `Authorization: Bearer`)
-3. Server lazily creates a `tokio::sync::broadcast` channel plus a scheduler task per user
-4. Scheduler loads active tasks from pg, finds the nearest cron fire time, sleeps until it
-5. On fire: broadcasts `TaskReminder { task_id, task_name, scheduled_time }` to all connected clients
-6. Scheduler exits when no active tasks remain, removing the user's channel from `state.channels`
-7. Reconnecting client resumes — scheduler respawns on connect
-
-### Heartbeat pings
-* server sends ping every 30s and terminates connection if pong not received before next ping
-
-### Connect
-```
-websocat -t - autoreconnect:ws://localhost:3003/websocket/notifications --header "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3ODA5MzY2NzcsImVtYWlsIjoia3NldmVseWFyQGdtYWlsLmNvbSIsImRldmljZV9pZCI6bnVsbCwiZGV2aWNlX25hbWUiOm51bGx9.ZDylN8H7MV0rV8Ya0ZYV-Iq0ny5NcI-MSkwaI3UER4A"
-
-[INFO  websocat::net_peer] Connected to TCP 127.0.0.1:3003
-[INFO  websocat::ws_client_peer] Connected to ws
-{"event":"UserAuthenticated","user":{"email":"ksevelyar@gmail.com","id":1,"timezone":"Europe/Moscow"}}
+## User scenarios
+### 1. Connect to notifications
+WebSocket request:
+```http
+GET /websocket/notifications
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjoiNmZkYjIxZGQtN2YwZC00NjUxLTg2ZjgtMGMzMGUxMGU2YzE5IiwiZGV2aWNlX25hbWUiOiJLaXRjaGVuIHRhYmxldCJ9.07trX4DfJROJfLdOwgvTOU2pUIXgdeET0hZKtyeb1c8
 ```
 
-## Telegram Notifications
-### Config
-* enabled when `TELEGRAM_BOT_TOKEN` env var is set
-* `TELEGRAM_BOT_USERNAME` is required when the token is set, missing username panics at startup
-* optional `TELEGRAM_PROXY`
+First event:
+```json
+{
+  "event": "UserAuthenticated",
+  "user": {
+    "id": 1,
+    "email": "person@example.com",
+    "timezone": "Europe/London"
+  }
+}
+```
 
-### Linking
-* client polls `/telegram/link` for status
-* calls `/telegram/request-link` to get a bot deep link containing a uuid code
-* user sends `/link <code>` to the bot, bot stores `telegram_chat_id` and calls `ensure_delivery`
-* `/telegram/unlink` clears the chat id
-* inbox worker long-polls `getUpdates` with 10s backoff on errors; the only command is `/link <code>`
+### 2. Receive a task reminder
+WebSocket request:
+```http
+GET /websocket/notifications
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjoiNmZkYjIxZGQtN2YwZC00NjUxLTg2ZjgtMGMzMGUxMGU2YzE5IiwiZGV2aWNlX25hbWUiOiJLaXRjaGVuIHRhYmxldCJ9.07trX4DfJROJfLdOwgvTOU2pUIXgdeET0hZKtyeb1c8
+```
 
-### Delivery
-* on each reminder fire, if the user has a linked chat, the reminder text (task name)
-  is sent via `sendMessage` before the websocket broadcast
+Event:
+```json
+{
+  "event": "TaskReminder",
+  "task_id": 7,
+  "task_name": "Take a walk",
+  "scheduled_time": "18:00"
+}
+```
+
+### 3. Check Telegram link status
+Request:
+```http
+GET /telegram/link
+Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+```
+
+Response, `200 OK`:
+```json
+{
+  "linked": false
+}
+```
+
+### 4. Request a Telegram link
+Request:
+```http
+POST /telegram/link
+Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+```
+
+Response, `200 OK`:
+```json
+{
+  "url": "https://t.me/habits_bot?start=6fdb21dd-7f0d-4651-86f8-0c30e10e6c19"
+}
+```
+
+### 5. Report unavailable Telegram configuration
+Request:
+```http
+GET /telegram/link
+Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+```
+
+Response, `503 Service Unavailable`:
+```json
+{
+  "error": "telegram is not configured"
+}
+```
