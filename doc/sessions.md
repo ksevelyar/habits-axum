@@ -1,14 +1,10 @@
 # Sessions
 ## Requirements
-* `POST /sessions` authenticates an email and password.
-* A successful session sets an HTTP-only `jwt` cookie scoped to `/` for one year.
-* The cookie is secure outside debug builds.
-* `GET /sessions/current` returns the authenticated user.
-* Missing, invalid, expired, and deleted-user sessions are unauthorized.
-* `JWT_SECRET` signs and verifies session tokens.
+* Users sign in with their email address and password.
+* A sign-in remains active for one year.
 
 ## User scenarios
-### 1. Sign in
+### 1. A user signs in
 Request:
 ```http
 POST /sessions
@@ -33,11 +29,11 @@ Response, `201 Created`:
 }
 ```
 
-### 2. Read the signed-in user
+### 2. A signed-in user reads their account
 Request:
 ```http
 GET /sessions/current
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 Response, `200 OK`:
@@ -49,7 +45,7 @@ Response, `200 OK`:
 }
 ```
 
-### 3. Reject invalid credentials
+### 3. A user cannot sign in with invalid credentials
 Request:
 ```http
 POST /sessions
@@ -69,7 +65,7 @@ Response, `401 Unauthorized`:
 }
 ```
 
-### 4. Report missing session configuration
+### 4. A user receives an error when session configuration is missing
 Request:
 ```http
 POST /sessions

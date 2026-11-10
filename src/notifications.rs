@@ -1,9 +1,8 @@
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
-use cron::Schedule;
+use croner::parser::{CronParser, Seconds};
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use serde_json::json;
 use sqlx::PgPool;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -13,43 +12,66 @@ use crate::telegram;
 use crate::users;
 use crate::{AppState, UserChannel};
 
-async fn eval_next_notification(
+fn find_next_timestamp(cron_expression: &str, timezone_name: &str, current_time: Timestamp) -> Option<Timestamp> {
+    let timezone = TimeZone::get(timezone_name).ok()?;
+    let current_zoned_time = current_time.to_zoned(timezone);
+    let cron = CronParser::builder()
+        .seconds(Seconds::Optional)
+        .sloppy_ranges(true)
+        .build()
+        .parse(cron_expression)
+        .ok()?;
+
+    cron.find_next_occurrence(&current_zoned_time, false)
+        .ok()
+        .map(|scheduled_time| scheduled_time.timestamp())
+}
+
+fn find_previous_timestamp(cron_expression: &str, timezone_name: &str, current_time: Timestamp) -> Option<Timestamp> {
+    let timezone = TimeZone::get(timezone_name).ok()?;
+    let current_zoned_time = current_time.to_zoned(timezone);
+    let cron = CronParser::builder()
+        .seconds(Seconds::Optional)
+        .sloppy_ranges(true)
+        .build()
+        .parse(cron_expression)
+        .ok()?;
+
+    cron.find_previous_occurrence(&current_zoned_time, false)
+        .ok()
+        .map(|scheduled_time| scheduled_time.timestamp())
+}
+
+async fn evaluate_next_notification(
     pool: &PgPool,
     user: &users::User,
-    timezone: Tz,
-    current_time: DateTime<Utc>,
-) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
+    current_time: Timestamp,
+) -> Result<Option<(Task, Timestamp)>, AppError> {
     let tasks = tasks::list_by_user_id(pool, user.id).await?;
 
     Ok(tasks
         .into_iter()
         .filter(|task| task.active)
         .filter_map(|task| {
-            let schedule = Schedule::from_str(&task.cron).ok()?;
-            let next_run = schedule.after(&current_time.with_timezone(&timezone)).next()?;
-            Some((task, next_run.with_timezone(&Utc)))
+            let next_run = find_next_timestamp(&task.cron, &user.timezone, current_time)?;
+            Some((task, next_run))
         })
         .min_by_key(|(_, next_run)| *next_run))
 }
 
-pub async fn eval_last_notification(
+pub async fn evaluate_last_notification(
     pool: &PgPool,
     user: &users::User,
-    timezone: Tz,
-    current_time: DateTime<Utc>,
-) -> Result<Option<(Task, DateTime<Utc>)>, AppError> {
+    current_time: Timestamp,
+) -> Result<Option<(Task, Timestamp)>, AppError> {
     let tasks = tasks::list_by_user_id(pool, user.id).await?;
 
     Ok(tasks
         .into_iter()
         .filter(|task| task.active)
         .filter_map(|task| {
-            let schedule = Schedule::from_str(&task.cron).ok()?;
-            let last_run = schedule
-                .after(&current_time.with_timezone(&timezone))
-                .next_back()
-                .map(|run| run.with_timezone(&Utc));
-            last_run.map(|run| (task, run))
+            let last_run = find_previous_timestamp(&task.cron, &user.timezone, current_time)?;
+            Some((task, last_run))
         })
         .max_by_key(|(_, last_run)| *last_run))
 }
@@ -87,10 +109,13 @@ pub async fn ensure_delivery(state: Arc<AppState>, user: &users::User) -> broadc
 }
 
 async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String>, pool: PgPool, state: Arc<AppState>) {
-    let timezone: Tz = user.timezone.parse().expect("timezone is validated on insert");
+    let timezone = TimeZone::get(&user.timezone).expect("timezone is validated on insert");
+    let mut most_recent_scheduled_timestamp = None;
     loop {
-        let current_time = state.clock.read_current_time();
-        let next_notification = match eval_next_notification(&pool, &user, timezone, current_time).await {
+        let clock_time = state.clock.read_current_time();
+        let current_time =
+            most_recent_scheduled_timestamp.map_or(clock_time, |scheduled_time| clock_time.max(scheduled_time));
+        let next_notification = match evaluate_next_notification(&pool, &user, current_time).await {
             Ok(next) => next,
             Err(error) => {
                 tracing::error!(%error, "evaluating next notification failed");
@@ -101,7 +126,7 @@ async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String
             break;
         };
 
-        let scheduled_time = next_run_at.with_timezone(&timezone).format("%H:%M").to_string();
+        let scheduled_time = next_run_at.to_zoned(timezone.clone()).strftime("%H:%M").to_string();
         tracing::info!(
             task_id = task.id,
             task_name = task.name,
@@ -109,9 +134,8 @@ async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String
             connected_clients = broadcast_tx.receiver_count(),
         );
 
-        let sleep_duration = (next_run_at - current_time)
-            .to_std()
-            .expect("next run is in the future");
+        let sleep_duration =
+            std::time::Duration::try_from(next_run_at - current_time).expect("next run is in the future");
         tokio::time::sleep(sleep_duration).await;
 
         if let Some(telegram_state) = &state.telegram
@@ -123,17 +147,19 @@ async fn delivery_loop(user: users::User, broadcast_tx: broadcast::Sender<String
             }
         }
 
-        let msg = json!({
+        let message = json!({
             "event": "TaskReminder",
             "task_id": task.id,
             "task_name": task.name,
             "scheduled_time": scheduled_time
         });
 
-        match broadcast_tx.send(msg.to_string()) {
+        match broadcast_tx.send(message.to_string()) {
             Ok(count) => tracing::info!(count, "notification sent"),
             Err(error) => tracing::warn!(%error, "failed to send notification"),
         }
+
+        most_recent_scheduled_timestamp = Some(next_run_at);
     }
 
     let mut channels = state.channels.write().await;

@@ -6,12 +6,11 @@ edition = "2024"
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "tracing"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "json"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "macros", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 axum-extra = { version = "0.12.6", features = ["cookie"]}
 bcrypt = "0.19.3"
-chrono = {version = "0.4.45", features = ["serde"]}
 jsonwebtoken = {version = "11.1.0", features = ["rust_crypto"]}
 tower-http = { version = "0.6.11", features = ["cors", "trace"] }
 tracing = "0.1.44"
@@ -19,11 +18,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 cookie = "0.18.2"
 serde_path_to_error = "0.1.20"
 uuid = { version = "1.29.2", features = ["v4"] }
-cron = "0.17.0"
+croner = { version = "4.0.3", default-features = false, features = ["jiff"] }
 futures-util = "0.3.34"
-chrono-tz = "0.10.4"
 console-subscriber = "0.5.0"
-jiff = "0.2.41"
+jiff = { version = "0.2.41", features = ["serde"] }
+jiff-sqlx = { version = "0.1.0", features = ["postgres"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls", "socks"] }
 
 [dev-dependencies]

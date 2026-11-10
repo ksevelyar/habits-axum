@@ -1,17 +1,16 @@
 # Charts
 ## Requirements
-* `GET /charts` requires a session cookie.
-* Chart history includes only the authenticated user's active chains enabled for charts.
-* `start_date` and `end_date` are required inclusive ISO dates.
-* Chains are ordered by explicit order, then id. Points are ordered by date.
-* Each chain includes its type, aggregate, and every metric within the requested range.
+* Users view charts for their active chains that they chose to show in charts.
+* Users select the date range shown in a chart.
+* A chart shows each chain's values and aggregation for the selected period.
+* A user only sees their own charts.
 
 ## User scenarios
-### 1. Enable a chain in charts
+### 1. A user enables a chain in charts
 Request:
 ```http
 PATCH /chains/42
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 ```json
@@ -37,11 +36,11 @@ Response, `200 OK`:
 }
 ```
 
-### 2. Load one month of chart history
+### 2. A user loads one month of chart history
 Request:
 ```http
-GET /charts?start_date=2026-02-09&end_date=2026-03-09
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+GET /charts?start_date=2026-03-01&end_date=2026-04-01
+Cookie: jwt=<jwt>
 ```
 
 Response, `200 OK`:
@@ -55,11 +54,11 @@ Response, `200 OK`:
       "aggregate": "sum",
       "points": [
         {
-          "date": "2026-02-09",
+          "date": "2026-03-05",
           "value": 20.0
         },
         {
-          "date": "2026-02-11",
+          "date": "2026-03-07",
           "value": 25.0
         }
       ]
@@ -68,11 +67,11 @@ Response, `200 OK`:
 }
 ```
 
-### 3. Return no chains when none are enabled
+### 3. A user sees no chains when none are enabled
 Request:
 ```http
-GET /charts?start_date=2026-02-09&end_date=2026-03-09
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+GET /charts?start_date=2026-03-01&end_date=2026-04-01
+Cookie: jwt=<jwt>
 ```
 
 Response, `200 OK`:

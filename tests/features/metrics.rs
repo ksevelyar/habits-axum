@@ -1,69 +1,24 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use axum::response::Response;
-use cookie::Cookie;
-use http_body_util::BodyExt;
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
+use jiff_sqlx::ToSqlx;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tower::{Service, ServiceExt};
 
+use super::support::{create_session, create_user, get_with_cookie, post_json_without_cookie, read_json_body};
 use habits_axum::build_app;
 use habits_axum::clock::SystemClock;
 
-async fn json_body(res: Response<Body>) -> Value {
-    let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-fn cookie_from(res: &Response<Body>) -> String {
-    let s = res.headers().get("set-cookie").unwrap().to_str().unwrap();
-    let c = Cookie::parse(s).unwrap();
-    format!("{}={}", c.name(), c.value())
-}
-
-fn post_json(uri: &str, body: Value) -> Request<Body> {
-    Request::post(uri)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-async fn create_user(pool: &PgPool, email: &str) {
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-    let res = app
-        .ready()
-        .await
-        .unwrap()
-        .call(post_json(
-            "/users",
-            json!({"email": email, "password": "x", "timezone": "Europe/London", "handle": email}),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-}
-
-async fn session(pool: &PgPool, email: &str) -> String {
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-    let res = app
-        .ready()
-        .await
-        .unwrap()
-        .call(post_json("/sessions", json!({"email": email, "password": "x"})))
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-    cookie_from(&res)
-}
-
 async fn device_token(pool: &PgPool, cookie: &str) -> String {
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-    let mut req = post_json("/devices", json!({"device_name": "esp32-stepper"}));
+    let mut req = post_json_without_cookie("/devices", json!({"device_name": "esp32-stepper"}));
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::CREATED);
-    json_body(res).await["token"].as_str().unwrap().to_string()
+    read_json_body(res).await["token"].as_str().unwrap().to_string()
 }
 
 async fn create_time_chain(pool: &PgPool, cookie: &str) -> i64 {
@@ -72,7 +27,7 @@ async fn create_time_chain(pool: &PgPool, cookie: &str) -> i64 {
 
 async fn create_chain(pool: &PgPool, cookie: &str, chain_type: &str) -> i64 {
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-    let mut request = post_json(
+    let mut request = post_json_without_cookie(
         "/chains",
         json!({
             "active": true,
@@ -84,7 +39,7 @@ async fn create_chain(pool: &PgPool, cookie: &str, chain_type: &str) -> i64 {
     request.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let response = app.ready().await.unwrap().call(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    json_body(response).await["id"].as_i64().unwrap()
+    read_json_body(response).await["id"].as_i64().unwrap()
 }
 
 fn post_metric(uri: &str, body: Value, token: &str) -> Request<Body> {
@@ -96,9 +51,59 @@ fn post_metric(uri: &str, body: Value, token: &str) -> Request<Body> {
 }
 
 #[sqlx::test]
+async fn serialize_metric_dates_in_history(pool: PgPool) {
+    create_user(&pool, "metric-history@example.com").await;
+    let cookie = create_session(&pool, "metric-history@example.com").await;
+    let chain_id = create_chain(&pool, &cookie, "integer").await;
+    let metric_date = Timestamp::now().to_zoned(TimeZone::UTC).date();
+
+    sqlx::query("INSERT INTO metrics (chain_id, date, value_integer) VALUES ($1, $2, $3)")
+        .bind(chain_id)
+        .bind(metric_date.to_sqlx())
+        .bind(12_i32)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
+    let response = app
+        .ready()
+        .await
+        .unwrap()
+        .call(get_with_cookie("/metrics_history", &cookie))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let history = read_json_body(response).await;
+    let metric_date_key = metric_date.to_string();
+    let chain_id_key = chain_id.to_string();
+    let metric = history["sprints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|sprint| sprint["week"].get(&metric_date_key))
+        .and_then(|metrics_by_chain| metrics_by_chain.get(&chain_id_key));
+
+    assert_eq!(metric.unwrap()["date"], metric_date_key);
+
+    let metric_response = app
+        .ready()
+        .await
+        .unwrap()
+        .call(get_with_cookie(&format!("/metrics?date={metric_date_key}"), &cookie))
+        .await
+        .unwrap();
+    assert_eq!(metric_response.status(), StatusCode::OK);
+
+    let metrics_by_date = read_json_body(metric_response).await;
+    assert!(metrics_by_date[0]["updated_at"].as_str().unwrap().ends_with('Z'));
+}
+
+#[sqlx::test]
 async fn upsert_metric_with_device_token(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
-    let cookie = session(&pool, "t@t.com").await;
+    let cookie = create_session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
     let chain_id = create_time_chain(&pool, &cookie).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
@@ -116,7 +121,7 @@ async fn upsert_metric_with_device_token(pool: PgPool) {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     assert_eq!(body["chain_id"], chain_id);
     assert_eq!(body["value_integer"], 125);
 
@@ -130,7 +135,7 @@ async fn upsert_metric_with_device_token(pool: PgPool) {
 #[sqlx::test]
 async fn upsert_metric_replaces_same_date(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
-    let cookie = session(&pool, "t@t.com").await;
+    let cookie = create_session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
     let chain_id = create_time_chain(&pool, &cookie).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
@@ -166,7 +171,7 @@ async fn upsert_metric_replaces_same_date(pool: PgPool) {
 #[sqlx::test]
 async fn reject_zero_empty_and_false_metric_values(pool: PgPool) {
     create_user(&pool, "metric-validation@example.com").await;
-    let cookie = session(&pool, "metric-validation@example.com").await;
+    let cookie = create_session(&pool, "metric-validation@example.com").await;
     let token = device_token(&pool, &cookie).await;
     let integer_chain_id = create_chain(&pool, &cookie, "integer").await;
     let float_chain_id = create_chain(&pool, &cookie, "float").await;
@@ -270,8 +275,8 @@ async fn reject_zero_empty_and_false_metric_values(pool: PgPool) {
 async fn upsert_metric_rejects_foreign_chain(pool: PgPool) {
     create_user(&pool, "a@t.com").await;
     create_user(&pool, "b@t.com").await;
-    let cookie_a = session(&pool, "a@t.com").await;
-    let cookie_b = session(&pool, "b@t.com").await;
+    let cookie_a = create_session(&pool, "a@t.com").await;
+    let cookie_b = create_session(&pool, "b@t.com").await;
     let token_b = device_token(&pool, &cookie_b).await;
     let chain_id = create_time_chain(&pool, &cookie_a).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
@@ -293,11 +298,11 @@ async fn upsert_metric_rejects_foreign_chain(pool: PgPool) {
 #[sqlx::test]
 async fn upsert_metric_with_cookie_still_works(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
-    let cookie = session(&pool, "t@t.com").await;
+    let cookie = create_session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
-    let mut req = post_json(
+    let mut req = post_json_without_cookie(
         "/metrics",
         json!({"date": "2026-08-09", "value": "125", "chain_id": chain_id}),
     );
@@ -309,7 +314,7 @@ async fn upsert_metric_with_cookie_still_works(pool: PgPool) {
 #[sqlx::test]
 async fn upsert_metric_without_auth_is_unauthorized(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
-    let cookie = session(&pool, "t@t.com").await;
+    let cookie = create_session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -317,7 +322,7 @@ async fn upsert_metric_without_auth_is_unauthorized(pool: PgPool) {
         .ready()
         .await
         .unwrap()
-        .call(post_json(
+        .call(post_json_without_cookie(
             "/metrics",
             json!({"date": "2026-08-09", "value": "125", "chain_id": chain_id}),
         ))

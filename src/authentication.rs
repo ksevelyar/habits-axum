@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
 use axum_extra::extract::cookie::Cookie;
 use axum_extra::extract::cookie::CookieJar;
-use chrono::Utc;
+use jiff::{SignedDuration, Timestamp};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -29,9 +29,12 @@ fn read_jwt_secret() -> Result<String, AppError> {
 #[tracing::instrument(err(level = Level::ERROR))]
 pub fn encode_jwt(email: String) -> Result<String, AppError> {
     let jwt_secret = read_jwt_secret()?;
-    let exp = Utc::now().timestamp() as u64 + SESSION_DURATION_SECONDS;
+    let session_duration_seconds = i64::try_from(SESSION_DURATION_SECONDS).expect("session duration fits in i64");
+    let expiration_timestamp = Timestamp::now() + SignedDuration::from_secs(session_duration_seconds);
+    let expiration_timestamp_seconds =
+        u64::try_from(expiration_timestamp.as_second()).expect("expiration timestamp is after the Unix epoch");
     let claim = Claims {
-        exp,
+        exp: expiration_timestamp_seconds,
         email,
         device_id: None,
         device_name: None,

@@ -73,7 +73,7 @@ pub async fn set_dev_password(pool: &PgPool) {
 #[tracing::instrument(skip(pool, payload), err(level = Level::ERROR))]
 pub async fn create(pool: &PgPool, payload: CreatePayload) -> Result<User, AppError> {
     let hashed_password = crate::authentication::hash(&payload.password)?;
-    payload.timezone.parse::<chrono_tz::Tz>().map_err(|_| {
+    jiff::tz::TimeZone::get(&payload.timezone).map_err(|_| {
         AppError::Validation(vec![FieldError {
             field: "timezone".into(),
             message: "unknown timezone".into(),

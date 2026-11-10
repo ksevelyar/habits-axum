@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
+use jiff::tz::TimeZone;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -32,7 +33,7 @@ pub async fn connect(
 }
 
 async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppState>) {
-    let timezone: chrono_tz::Tz = user.timezone.parse().expect("timezone is validated on insert");
+    let timezone = TimeZone::get(&user.timezone).expect("timezone is validated on insert");
     let user_channel = crate::notifications::ensure_delivery(state.clone(), &user).await;
     let mut broadcast_rx = user_channel.subscribe();
     let (mut sender, mut receiver) = socket.split();
@@ -51,9 +52,9 @@ async fn handle_connection(socket: WebSocket, user: users::User, state: Arc<AppS
 
     let current_time = state.clock.read_current_time();
     if let Ok(Some((task, last_run_at))) =
-        crate::notifications::eval_last_notification(&state.pool, &user, timezone, current_time).await
+        crate::notifications::evaluate_last_notification(&state.pool, &user, current_time).await
     {
-        let scheduled_time = last_run_at.with_timezone(&timezone).format("%H:%M").to_string();
+        let scheduled_time = last_run_at.to_zoned(timezone).strftime("%H:%M").to_string();
         let last_reminder = json!({
             "event": "TaskReminder",
             "task_id": task.id,

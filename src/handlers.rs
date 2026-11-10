@@ -1,5 +1,6 @@
 pub mod chains;
 pub mod charts;
+pub mod ledger;
 pub mod metrics;
 pub mod notifications;
 pub mod tasks;

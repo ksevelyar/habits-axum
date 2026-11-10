@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use axum_extra::extract::cookie::CookieJar;
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -15,19 +15,19 @@ use crate::metrics::{HistoryResponse, Metric, MetricByDate};
 
 #[derive(Deserialize)]
 pub struct UpdateMetricPayload {
-    pub date: NaiveDate,
+    pub date: Date,
     pub value: String,
     pub chain_id: i64,
 }
 
 #[derive(Deserialize)]
 pub struct MetricsQuery {
-    pub date: NaiveDate,
+    pub date: Date,
 }
 
 #[derive(Deserialize)]
 pub struct DeleteMetricQuery {
-    pub date: NaiveDate,
+    pub date: Date,
     pub chain_id: i64,
 }
 

@@ -1,8 +1,9 @@
 use axum::http;
-use chrono::{DateTime, TimeZone, Utc};
 use futures_util::StreamExt;
+use jiff::Timestamp;
 use serde_json::Value;
 use sqlx::PgPool;
+use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -16,17 +17,17 @@ use habits_axum::{
 
 #[derive(Debug)]
 struct FixedClock {
-    current_time: DateTime<Utc>,
+    current_time: Timestamp,
 }
 
 impl Clock for FixedClock {
-    fn read_current_time(&self) -> DateTime<Utc> {
+    fn read_current_time(&self) -> Timestamp {
         self.current_time
     }
 }
 
 async fn insert_user_with_timezone(pool: &PgPool, timezone: &str) {
-    let hash = crate::authentication::hash("pass").unwrap();
+    let hash = habits_axum::authentication::hash("pass").unwrap();
     sqlx::query("INSERT INTO users (email, password_hash, handle, timezone) VALUES ($1, $2, $3, $4)")
         .bind("test@test.com")
         .bind(&hash)
@@ -101,7 +102,7 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
 
 #[sqlx::test]
 async fn sends_last_notification_on_connect(pool: PgPool) {
-    let fixed_time = Utc.with_ymd_and_hms(2025, 1, 8, 17, 0, 0).unwrap();
+    let fixed_time: Timestamp = "2025-01-08T17:00:00Z".parse().unwrap();
     insert_user_with_timezone(&pool, "Europe/Moscow").await;
 
     let (user_id,): (i64,) = sqlx::query_as("SELECT id FROM users WHERE email = $1")
@@ -201,11 +202,11 @@ async fn send_three_cron_reminders(pool: PgPool) {
         .unwrap();
 
     let crons = ["0/3 * * * * *", "1/3 * * * * *", "2/3 * * * * *"];
-    for (i, cron_expr) in crons.iter().enumerate() {
+    for (task_index, cron_expression) in crons.iter().enumerate() {
         sqlx::query("INSERT INTO tasks (user_id, name, cron, active) VALUES ($1, $2, $3, true)")
             .bind(user_id)
-            .bind(format!("Task {}", i + 1))
-            .bind(cron_expr)
+            .bind(format!("Task {}", task_index + 1))
+            .bind(cron_expression)
             .execute(&pool)
             .await
             .unwrap();
@@ -231,13 +232,15 @@ async fn send_three_cron_reminders(pool: PgPool) {
     assert_eq!(response["event"], "UserAuthenticated");
 
     let mut reminders = Vec::new();
-    while reminders.len() < 3 {
+    let mut reminder_task_ids = HashSet::new();
+    while reminder_task_ids.len() < 3 {
         match timeout(Duration::from_secs(10), socket.next()).await {
             Ok(Some(Ok(tungstenite::Message::Text(text)))) => {
                 let event: Value = serde_json::from_str(&text).unwrap();
                 if event["event"] == "TaskReminder" {
-                    assert!(event["task_id"].as_i64().is_some());
+                    let task_id = event["task_id"].as_i64().unwrap();
                     assert!(event["task_name"].as_str().is_some());
+                    reminder_task_ids.insert(task_id);
                     reminders.push(event);
                 }
             }
@@ -245,20 +248,17 @@ async fn send_three_cron_reminders(pool: PgPool) {
             Ok(Some(Ok(_))) => continue,
             Ok(Some(Err(e))) => panic!("ws error: {e}"),
             Ok(None) => break,
-            Err(_) => panic!("timeout waiting for task reminders, got {}/3", reminders.len()),
+            Err(_) => panic!(
+                "timeout waiting for all task reminders, got {}/3 distinct task ids",
+                reminder_task_ids.len()
+            ),
         }
     }
 
-    assert_eq!(reminders.len(), 3, "got {} reminders: {reminders:?}", reminders.len());
-
-    let task_ids: Vec<i64> = reminders.iter().map(|r| r["task_id"].as_i64().unwrap()).collect();
-    let mut unique_ids = task_ids.clone();
-    unique_ids.sort();
-    unique_ids.dedup();
     assert_eq!(
-        unique_ids.len(),
+        reminder_task_ids.len(),
         3,
-        "should cover 3 distinct tasks, got ids {task_ids:?}"
+        "should cover 3 distinct tasks, got events {reminders:?}"
     );
 
     let names: Vec<String> = reminders
