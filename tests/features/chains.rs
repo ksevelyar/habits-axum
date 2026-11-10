@@ -1,91 +1,27 @@
-use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
-use axum::response::Response;
-use cookie::Cookie;
-use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use axum::http::{StatusCode, header};
+use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tower::{Service, ServiceExt};
 
+use super::support::{
+    create_user_and_session, delete_with_cookie, get_with_cookie, patch_json, post_json_without_cookie, read_json_body,
+};
 use habits_axum::build_app;
 use habits_axum::chains::Chain;
 use habits_axum::clock::SystemClock;
 
-async fn json_body(res: Response<Body>) -> Value {
-    let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-fn cookie_from(res: &Response<Body>) -> String {
-    let s = res.headers().get("set-cookie").unwrap().to_str().unwrap();
-    let c = Cookie::parse(s).unwrap();
-    format!("{}={}", c.name(), c.value())
-}
-
-fn post_json(uri: &str, body: Value) -> Request<Body> {
-    Request::post(uri)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-fn patch_json(uri: &str, body: Value, cookie: &str) -> Request<Body> {
-    Request::patch(uri)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, cookie)
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-fn get_req(uri: &str, cookie: &str) -> Request<Body> {
-    Request::get(uri)
-        .header(header::COOKIE, cookie)
-        .body(Body::empty())
-        .unwrap()
-}
-
-fn delete_req(uri: &str, cookie: &str) -> Request<Body> {
-    Request::delete(uri)
-        .header(header::COOKIE, cookie)
-        .body(Body::empty())
-        .unwrap()
-}
-
-async fn session(pool: &PgPool) -> String {
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-
-    let create_user_response = app
-        .ready()
-        .await
-        .unwrap()
-        .call(post_json(
-            "/users",
-            json!({"email": "t@t.com", "password": "x", "timezone": "Europe/London", "handle": "user9000"}),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(create_user_response.status(), StatusCode::CREATED);
-
-    let create_session_response = app
-        .ready()
-        .await
-        .unwrap()
-        .call(post_json("/sessions", json!({"email": "t@t.com", "password": "x"})))
-        .await
-        .unwrap();
-    assert_eq!(create_session_response.status(), StatusCode::CREATED);
-
-    cookie_from(&create_session_response)
+async fn create_test_session(pool: &PgPool) -> String {
+    create_user_and_session(pool, "t@t.com", "x", "Europe/London", "user9000").await
 }
 
 #[sqlx::test]
 async fn create_integer_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
-        let mut req = post_json(
+        let mut req = post_json_without_cookie(
             "/chains",
             json!({
                 "active": true,
@@ -101,7 +37,7 @@ async fn create_integer_chain(pool: PgPool) {
     };
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     body["id"].as_i64().unwrap();
     assert_eq!(body["active"], true);
     assert_eq!(body["show_in_charts"], false);
@@ -110,16 +46,16 @@ async fn create_integer_chain(pool: PgPool) {
     assert_eq!(body["aggregate"], "sum");
     assert_eq!(body["description"], "kettlebell + pull ups");
     assert_eq!(body["order"], 5);
-    assert!(body["inserted_at"].as_str().is_some());
+    assert!(body["inserted_at"].as_str().unwrap().ends_with('Z'));
 }
 
 #[sqlx::test]
 async fn create_float_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
-        let mut req = post_json(
+        let mut req = post_json_without_cookie(
             "/chains",
             json!({
                 "active": true,
@@ -134,7 +70,7 @@ async fn create_float_chain(pool: PgPool) {
     };
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     assert_eq!(body["type"], "float");
     assert_eq!(body["show_in_charts"], true);
     assert_eq!(body["name"], "weight");
@@ -143,11 +79,11 @@ async fn create_float_chain(pool: PgPool) {
 
 #[sqlx::test]
 async fn create_boolean_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
-        let mut req = post_json(
+        let mut req = post_json_without_cookie(
             "/chains",
             json!({
                 "active": true,
@@ -161,18 +97,18 @@ async fn create_boolean_chain(pool: PgPool) {
     };
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     assert_eq!(body["type"], "boolean");
     assert_eq!(body["name"], "meditation");
 }
 
 #[sqlx::test]
 async fn create_time_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let res = {
-        let mut req = post_json(
+        let mut req = post_json_without_cookie(
             "/chains",
             json!({
                 "active": true,
@@ -186,14 +122,14 @@ async fn create_time_chain(pool: PgPool) {
     };
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     assert_eq!(body["type"], "time");
     assert_eq!(body["name"], "reading");
 }
 
 #[sqlx::test]
 async fn create_chain_with_invalid_payload(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     for payload in [
@@ -202,7 +138,7 @@ async fn create_chain_with_invalid_payload(pool: PgPool) {
         json!({"active": true, "name": "x", "type": "bad", "aggregate": "sum"}),
         json!("not_an_object"),
     ] {
-        let mut req = post_json("/chains", payload);
+        let mut req = post_json_without_cookie("/chains", payload);
         req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         let res = app.ready().await.unwrap().call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -211,10 +147,10 @@ async fn create_chain_with_invalid_payload(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
-    let mut req = post_json(
+    let mut req = post_json_without_cookie(
         "/chains",
         json!({
             "active": true,
@@ -227,7 +163,7 @@ async fn update_chain(pool: PgPool) {
     );
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
-    let id = json_body(res).await["id"].as_i64().unwrap();
+    let id = read_json_body(res).await["id"].as_i64().unwrap();
 
     let res = app
         .ready()
@@ -247,7 +183,7 @@ async fn update_chain(pool: PgPool) {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 
-    let body = json_body(res).await;
+    let body = read_json_body(res).await;
     assert_eq!(body["name"], "updated");
     assert_eq!(body["active"], false);
     assert_eq!(body["show_in_charts"], true);
@@ -270,10 +206,10 @@ async fn update_chain(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_chain_with_invalid_payload(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
-    let mut req = post_json(
+    let mut req = post_json_without_cookie(
         "/chains",
         json!({
             "active": true, "name": "x", "type": "integer", "aggregate": "sum",
@@ -281,7 +217,7 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
     );
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
-    let id = json_body(res).await["id"].as_i64().unwrap();
+    let id = read_json_body(res).await["id"].as_i64().unwrap();
 
     let res = app
         .ready()
@@ -295,10 +231,10 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
 
 #[sqlx::test]
 async fn delete_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
-    let mut req = post_json(
+    let mut req = post_json_without_cookie(
         "/chains",
         json!({
             "active": true, "name": "x", "type": "integer", "aggregate": "sum",
@@ -306,13 +242,13 @@ async fn delete_chain(pool: PgPool) {
     );
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
-    let id = json_body(res).await["id"].as_i64().unwrap();
+    let id = read_json_body(res).await["id"].as_i64().unwrap();
 
     let res = app
         .ready()
         .await
         .unwrap()
-        .call(delete_req(&format!("/chains/{id}"), &cookie))
+        .call(delete_with_cookie(&format!("/chains/{id}"), &cookie))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
@@ -327,10 +263,10 @@ async fn delete_chain(pool: PgPool) {
 
 #[sqlx::test]
 async fn show_chain(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
-    let mut req = post_json(
+    let mut req = post_json_without_cookie(
         "/chains",
         json!({
             "active": false,
@@ -344,25 +280,25 @@ async fn show_chain(pool: PgPool) {
     );
     req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
     let res = app.ready().await.unwrap().call(req).await.unwrap();
-    let created = json_body(res).await;
+    let created = read_json_body(res).await;
     let id = created["id"].as_i64().unwrap();
 
     let res = app
         .ready()
         .await
         .unwrap()
-        .call(get_req(&format!("/chains/{id}"), &cookie))
+        .call(get_with_cookie(&format!("/chains/{id}"), &cookie))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    let response_body = json_body(res).await;
+    let response_body = read_json_body(res).await;
     assert_eq!(response_body, created);
     assert_eq!(response_body["show_in_charts"], true);
 }
 
 #[sqlx::test]
 async fn show_chains(pool: PgPool) {
-    let cookie = session(&pool).await;
+    let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
     let items = vec![
@@ -372,7 +308,7 @@ async fn show_chains(pool: PgPool) {
     ];
 
     for payload in &items {
-        let mut req = post_json("/chains", payload.clone());
+        let mut req = post_json_without_cookie("/chains", payload.clone());
         req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
         let res = app.ready().await.unwrap().call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::CREATED);
@@ -382,12 +318,12 @@ async fn show_chains(pool: PgPool) {
         .ready()
         .await
         .unwrap()
-        .call(get_req("/chains", &cookie))
+        .call(get_with_cookie("/chains", &cookie))
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 
-    let list = json_body(res).await;
+    let list = read_json_body(res).await;
     let list = list.as_array().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[0]["name"], "c");

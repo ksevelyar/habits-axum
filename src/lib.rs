@@ -4,6 +4,7 @@ pub mod charts;
 pub mod clock;
 pub mod error;
 pub mod handlers;
+pub mod ledger;
 pub mod metrics;
 pub mod notifications;
 pub mod tasks;
@@ -77,6 +78,26 @@ pub fn build_app(pool: PgPool, telegram: Option<TelegramClient>, clock: Arc<dyn 
         .route("/chains/{chain_id}", delete(handlers::chains::delete))
         .route("/chains/{chain_id}", get(handlers::chains::show))
         .route("/charts", get(handlers::charts::show_history))
+        .route("/ledger/categories", get(handlers::ledger::list_categories))
+        .route("/ledger/categories", post(handlers::ledger::create_category))
+        .route(
+            "/ledger/categories/{category_id}",
+            patch(handlers::ledger::update_category),
+        )
+        .route(
+            "/ledger/categories/{category_id}",
+            delete(handlers::ledger::delete_category),
+        )
+        .route("/ledger/transactions", get(handlers::ledger::list_transactions))
+        .route("/ledger/transactions", post(handlers::ledger::create_transaction))
+        .route(
+            "/ledger/transactions/{transaction_id}",
+            patch(handlers::ledger::update_transaction),
+        )
+        .route(
+            "/ledger/transactions/{transaction_id}",
+            delete(handlers::ledger::delete_transaction),
+        )
         .route("/tasks", get(handlers::tasks::list))
         .route("/tasks", post(handlers::tasks::create))
         .route("/tasks/{task_id}", patch(handlers::tasks::update))

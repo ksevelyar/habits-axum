@@ -1,4 +1,5 @@
-use chrono::NaiveDate;
+use jiff::civil::Date;
+use jiff_sqlx::ToSqlx;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::types::Json;
@@ -23,7 +24,7 @@ pub struct ChartHistoryChain {
 
 #[derive(Deserialize, Serialize)]
 pub struct ChartHistoryPoint {
-    pub date: NaiveDate,
+    pub date: Date,
     pub value: f64,
 }
 
@@ -31,8 +32,8 @@ pub struct ChartHistoryPoint {
 pub async fn list_history(
     pool: &PgPool,
     user_id: i64,
-    start_date: NaiveDate,
-    end_date: NaiveDate,
+    start_date: Date,
+    end_date: Date,
 ) -> Result<ChartsResponse, AppError> {
     Ok(sqlx::query_scalar::<_, Json<ChartsResponse>>(
         r#"
@@ -67,7 +68,7 @@ pub async fn list_history(
             FROM metrics
             WHERE metrics.chain_id = chains.id
               AND metrics.date >= $2
-              AND metrics.date <= $3
+              AND metrics.date < $3
         ) AS chart_points ON TRUE
         WHERE chains.user_id = $1
           AND chains.active = TRUE
@@ -75,8 +76,8 @@ pub async fn list_history(
         "#,
     )
     .bind(user_id)
-    .bind(start_date)
-    .bind(end_date)
+    .bind(start_date.to_sqlx())
+    .bind(end_date.to_sqlx())
     .fetch_one(pool)
     .await?
     .0)

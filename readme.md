@@ -7,10 +7,13 @@
 * [Devices](doc/devices.md)
 * [Errors](doc/errors.md)
 * [Metrics](doc/metrics.md)
+* [Ledger categories](doc/ledger/categories.md)
+* [Ledger transactions](doc/ledger/transactions.md)
 * [Nginx](doc/nginx.md)
-* [Notifications](doc/notifications.md)
+* [Tasks](doc/calendar/tasks.md)
+* [Telegram notifications](doc/calendar/telegram-notifications.md)
+* [WebSocket notifications](doc/calendar/websocket-notifications.md)
 * [Sessions](doc/sessions.md)
-* [Tasks](doc/tasks.md)
 * [Users](doc/users.md)
 
 ## Run

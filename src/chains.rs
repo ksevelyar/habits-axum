@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Type};
 use tracing::Level;
@@ -62,8 +62,10 @@ pub struct Chain {
     pub description: Option<String>,
     pub order: Option<i32>,
 
-    pub inserted_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub inserted_at: Timestamp,
+    #[sqlx(try_from = "jiff_sqlx::Timestamp")]
+    pub updated_at: Timestamp,
 }
 
 #[tracing::instrument(skip(pool), err(level = Level::ERROR))]

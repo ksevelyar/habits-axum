@@ -58,7 +58,7 @@
               '')
             ];
             DATABASE_URL = "postgres://postgres:postgres@localhost:5432/habits_axum";
-            CORS_ORIGINS = "http://habits.lcl:3000,http://localhost:3000";
+            CORS_ORIGINS = "http://habits.localhost:3000";
             RUST_LOG = "info";
             JWT_SECRET = "very secret";
             TELEGRAM_BOT_TOKEN = "";

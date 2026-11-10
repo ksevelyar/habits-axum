@@ -1,12 +1,10 @@
 # Users
 ## Requirements
-* `POST /users` creates an account without authentication.
-* Email, handle, password, and IANA timezone are required.
-* Email and handle are unique. Email uniqueness is case-insensitive.
-* Public user responses exclude passwords and password hashes.
+* People create an account with an email address, handle, password, and timezone.
+* Account information never exposes passwords.
 
 ## User scenarios
-### 1. Register an account
+### 1. A user registers an account
 Request:
 ```http
 POST /users
@@ -30,7 +28,7 @@ Response, `201 Created`:
 }
 ```
 
-### 2. Reject an email already in use
+### 2. A user cannot register with an email already in use
 Request:
 ```http
 POST /users
@@ -58,7 +56,7 @@ Response, `422 Unprocessable Entity`:
 }
 ```
 
-### 3. Reject an unknown timezone
+### 3. A user cannot register with an unknown timezone
 Request:
 ```http
 POST /users

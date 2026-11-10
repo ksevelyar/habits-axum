@@ -1,16 +1,15 @@
 # Devices
 ## Requirements
-* `POST /devices` requires a cookie session.
-* A device token identifies the authenticated user, a generated device id, and the supplied device name.
+* Users connect named devices to their account.
 * Device tokens do not expire.
-* Metric writes and notification WebSocket connections accept a device token through `Authorization: Bearer`.
+* Connected devices can record metrics and receive notifications for their owner.
 
 ## User scenarios
-### 1. Create a device token
+### 1. A user creates a device token
 Request:
 ```http
 POST /devices
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 ```json
@@ -28,7 +27,7 @@ Response, `201 Created`:
 }
 ```
 
-### 2. Reject device creation without a session
+### 2. A user without a session cannot create a device token
 Request:
 ```http
 POST /devices

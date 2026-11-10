@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::{Query, State};
 use axum_extra::extract::cookie::CookieJar;
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -12,8 +12,8 @@ use crate::error::AppError;
 
 #[derive(Deserialize)]
 pub struct ChartHistoryQuery {
-    pub start_date: NaiveDate,
-    pub end_date: NaiveDate,
+    pub start_date: Date,
+    pub end_date: Date,
 }
 
 pub async fn show_history(
@@ -23,8 +23,8 @@ pub async fn show_history(
 ) -> Result<Json<ChartsResponse>, AppError> {
     let user = authenticate_cookie(&state.pool, &cookie_jar).await?;
 
-    if query.start_date > query.end_date {
-        return Err(AppError::BadRequest("start_date must be on or before end_date".into()));
+    if query.start_date >= query.end_date {
+        return Err(AppError::BadRequest("start_date must be before end_date".into()));
     }
 
     crate::charts::list_history(&state.pool, user.id, query.start_date, query.end_date)

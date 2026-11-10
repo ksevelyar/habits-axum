@@ -1,19 +1,17 @@
 # Chains
 ## Requirements
-* All chain endpoints require a session cookie.
-* A chain belongs to the authenticated user.
-* `type` is `integer`, `float`, `boolean`, or `time`.
-* `aggregate` is `sum` or `avg`.
-* New chains require `active`, `aggregate`, `name`, and `type`. `show_in_charts` defaults to `false`.
-* Updates accept any subset of chain fields.
-* Chain indexes are ordered by descending id.
+* Users create and manage their own tracking chains.
+* A chain tracks integer, decimal, yes-or-no, or duration values.
+* A chain totals or averages its recorded values.
+* Users choose whether a chain is active and appears in charts.
+* A user only sees and changes their own chains.
 
 ## User scenarios
-### 1. Create a chain
+### 1. A user creates a chain
 Request:
 ```http
 POST /chains
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 ```json
@@ -45,11 +43,11 @@ Response, `201 Created`:
 }
 ```
 
-### 2. Enable a chain in charts
+### 2. A user enables a chain in charts
 Request:
 ```http
 PATCH /chains/42
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 ```json
@@ -75,11 +73,11 @@ Response, `200 OK`:
 }
 ```
 
-### 3. Read a chain
+### 3. A user reads a chain
 Request:
 ```http
 GET /chains/42
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoicGVyc29uQGV4YW1wbGUuY29tIiwiZGV2aWNlX2lkIjpudWxsLCJkZXZpY2VfbmFtZSI6bnVsbH0.K_wZSRP7f6f-fJayUpWmFDbwLbt6e-Af_538M5Ht_U4
+Cookie: jwt=<jwt>
 ```
 
 Response, `200 OK`:
@@ -99,11 +97,11 @@ Response, `200 OK`:
 }
 ```
 
-### 4. Hide another user's chain
+### 4. A user cannot read another user's chain
 Request:
 ```http
 GET /chains/42
-Cookie: jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImVtYWlsIjoiYW5vdGhlckBleGFtcGxlLmNvbSIsImRldmljZV9pZCI6bnVsbCwiZGV2aWNlX25hbWUiOm51bGx9.D3r477qnfxD90REBgpQ1s6AMDa-JQ0H_z7TyYJ67fAY
+Cookie: jwt=<jwt>
 ```
 
 Response, `404 Not Found`:
