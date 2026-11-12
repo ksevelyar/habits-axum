@@ -8,7 +8,7 @@ use super::super::support::{
 };
 
 #[sqlx::test]
-async fn create_ledger_category(pool: PgPool) {
+async fn user_creates_category(pool: PgPool) {
     let (user_id, cookie) = create_authenticated_user(&pool, "ledger-category-create@example.com", "UTC").await;
     let application = build_application(&pool);
 
@@ -28,7 +28,7 @@ async fn create_ledger_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn list_only_authenticated_users_ledger_categories(pool: PgPool) {
+async fn authenticated_user_lists_their_categories(pool: PgPool) {
     let (owner_id, owner_cookie) = create_authenticated_user(&pool, "ledger-category-owner@example.com", "UTC").await;
     let (_, another_cookie) = create_authenticated_user(&pool, "ledger-category-another@example.com", "UTC").await;
     let application = build_application(&pool);
@@ -48,7 +48,7 @@ async fn list_only_authenticated_users_ledger_categories(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn rename_ledger_category(pool: PgPool) {
+async fn user_renames_category(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-category-rename@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "House").await;
@@ -68,7 +68,7 @@ async fn rename_ledger_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn delete_unused_ledger_category(pool: PgPool) {
+async fn user_deletes_unused_category(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-category-delete@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Unused").await;
@@ -86,7 +86,7 @@ async fn delete_unused_ledger_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn refuse_to_delete_category_with_transactions(pool: PgPool) {
+async fn user_cannot_delete_category_with_transactions(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-category-in-use@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Home").await;
@@ -115,7 +115,7 @@ async fn refuse_to_delete_category_with_transactions(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn hide_another_users_ledger_category(pool: PgPool) {
+async fn user_cannot_access_another_users_category(pool: PgPool) {
     let (_, owner_cookie) = create_authenticated_user(&pool, "ledger-category-visible@example.com", "UTC").await;
     let (_, another_cookie) = create_authenticated_user(&pool, "ledger-category-hidden@example.com", "UTC").await;
     let application = build_application(&pool);
@@ -143,7 +143,7 @@ async fn hide_another_users_ledger_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn require_authentication_for_ledger_categories(pool: PgPool) {
+async fn unauthenticated_user_cannot_access_categories(pool: PgPool) {
     let application = build_application(&pool);
     let response = send(
         &application,

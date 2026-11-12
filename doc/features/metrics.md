@@ -59,7 +59,7 @@ Response, `200 OK`:
 ]
 ```
 
-### 3. A user cannot record a zero metric
+### 3. A user cannot record zero, empty, or false metric values
 Request:
 ```http
 POST /metrics
@@ -102,3 +102,62 @@ Response, `404 Not Found`:
   "error": "chain not found"
 }
 ```
+
+### 5. A device records an integer metric
+Request:
+```http
+POST /metrics
+Authorization: Bearer <device token>
+```
+
+```json
+{
+  "chain_id": 42,
+  "date": "2026-03-09",
+  "value": "25"
+}
+```
+
+Response, `200 OK`: the stored metric with `value_integer` set to 25.
+
+### 6. A user corrects a metric for the same date
+Request:
+```http
+POST /metrics
+Authorization: Bearer <device token>
+```
+
+```json
+{
+  "chain_id": 42,
+  "date": "2026-03-09",
+  "value": "90"
+}
+```
+
+Response, `200 OK`: the existing metric for the date is replaced, one row remains.
+
+### 7. A user reviews metric history
+Request:
+```http
+GET /metrics_history
+Cookie: jwt=<jwt>
+```
+
+Response, `200 OK`: weekly sprints with per-day metrics whose `date` values are civil dates ending without a time offset.
+
+### 8. An unauthenticated user cannot record a metric
+Request:
+```http
+POST /metrics
+```
+
+```json
+{
+  "chain_id": 42,
+  "date": "2026-03-09",
+  "value": "25"
+}
+```
+
+Response, `401 Unauthorized`.

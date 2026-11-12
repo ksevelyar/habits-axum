@@ -1,45 +1,56 @@
-use axum::http::{StatusCode, header};
+use axum::http::StatusCode;
 use serde_json::json;
 use sqlx::PgPool;
-use std::sync::Arc;
-use tower::{Service, ServiceExt};
 
-use super::support::{create_user_and_session, post_json_without_cookie, read_json_body};
-use habits_axum::authentication;
-use habits_axum::build_app;
-use habits_axum::clock::SystemClock;
+use super::support::{build_application, post_json_without_cookie, read_json_body, send};
 
 #[sqlx::test]
-async fn create_device(pool: PgPool) {
-    let cookie = create_user_and_session(&pool, "t@t.com", "x", "Europe/London", "user9000").await;
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
+async fn user_registers_account(pool: PgPool) {
+    let application = build_application(&pool);
+    let response = send(
+        &application,
+        post_json_without_cookie(
+            "/users",
+            json!({"email":"person@example.com","handle":"person","password":"correct horse battery staple","timezone":"Europe/London"}),
+        ),
+    )
+    .await;
 
-    let mut req = post_json_without_cookie("/devices", json!({"device_name": "esp32-display"}));
-    req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-    let res = app.ready().await.unwrap().call(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = read_json_body(res).await;
-    let device_id = body["device_id"].as_str().unwrap().to_string();
-    assert_eq!(body["device_name"], "esp32-display");
-    let token = body["token"].as_str().unwrap().to_string();
-
-    let token_data = authentication::decode_jwt(&token).unwrap();
-    assert_eq!(token_data.claims.email, "t@t.com");
-    assert_eq!(token_data.claims.device_id, Some(device_id));
-    assert_eq!(token_data.claims.device_name, Some("esp32-display".to_string()));
-    assert_eq!(token_data.claims.exp, u64::MAX);
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let user = read_json_body(response).await;
+    assert!(user["id"].as_i64().is_some());
+    assert_eq!(user["email"], "person@example.com");
+    assert_eq!(user["timezone"], "Europe/London");
+    assert!(user.get("password").is_none());
+    assert!(user.get("password_hash").is_none());
 }
 
 #[sqlx::test]
-async fn create_device_with_invalid_params(pool: PgPool) {
-    let cookie = create_user_and_session(&pool, "t@t.com", "x", "Europe/London", "user9000").await;
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
+async fn user_cannot_register_with_email_already_in_use(pool: PgPool) {
+    let application = build_application(&pool);
+    let account = json!({"email":"person@example.com","handle":"person","password":"correct horse battery staple","timezone":"Europe/London"});
+    assert_eq!(
+        send(&application, post_json_without_cookie("/users", account))
+            .await
+            .status(),
+        StatusCode::CREATED
+    );
 
-    for payload in [json!({}), json!("not_an_object")] {
-        let mut req = post_json_without_cookie("/devices", payload);
-        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-        let res = app.ready().await.unwrap().call(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    }
+    let response = send(&application, post_json_without_cookie("/users", json!({"email":"PERSON@example.com","handle":"another-person","password":"correct horse battery staple","timezone":"Europe/London"}))).await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        read_json_body(response).await,
+        json!({"error":"validation failed","fields":[{"field":"email","message":"email is already taken"}]})
+    );
+}
+
+#[sqlx::test]
+async fn user_cannot_register_with_unknown_timezone(pool: PgPool) {
+    let application = build_application(&pool);
+    let response = send(&application, post_json_without_cookie("/users", json!({"email":"person@example.com","handle":"person","password":"correct horse battery staple","timezone":"Mars/Olympus_Mons"}))).await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        read_json_body(response).await,
+        json!({"error":"validation failed","fields":[{"field":"timezone","message":"unknown timezone"}]})
+    );
 }

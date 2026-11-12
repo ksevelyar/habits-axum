@@ -110,3 +110,47 @@ Response, `404 Not Found`:
   "error": "chain not found"
 }
 ```
+
+### 5. A user cannot create a chain with invalid input
+Request:
+```http
+POST /chains
+Cookie: jwt=<jwt>
+```
+
+```json
+{"active": true}
+```
+
+Response, `422 Unprocessable Entity`.
+
+### 6. A user cannot update a chain with invalid input
+Request:
+```http
+PATCH /chains/42
+Cookie: jwt=<jwt>
+```
+
+```json
+{"type": "bad"}
+```
+
+Response, `422 Unprocessable Entity`.
+
+### 7. A user deletes a chain
+Request:
+```http
+DELETE /chains/42
+Cookie: jwt=<jwt>
+```
+
+Response, `204 No Content`.
+
+### 8. A user lists their chains
+Request:
+```http
+GET /chains
+Cookie: jwt=<jwt>
+```
+
+Response, `200 OK`: a JSON array of the user's chains, newest first.

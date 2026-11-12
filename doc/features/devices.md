@@ -27,7 +27,20 @@ Response, `201 Created`:
 }
 ```
 
-### 2. A user without a session cannot create a device token
+### 2. A user cannot create a device token without a device name
+Request:
+```http
+POST /devices
+Cookie: jwt=<jwt>
+```
+
+```json
+{}
+```
+
+Response, `422 Unprocessable Entity`.
+
+### 3. A user without a session cannot create a device token
 Request:
 ```http
 POST /devices

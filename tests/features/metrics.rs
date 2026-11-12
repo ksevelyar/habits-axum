@@ -51,7 +51,7 @@ fn post_metric(uri: &str, body: Value, token: &str) -> Request<Body> {
 }
 
 #[sqlx::test]
-async fn serialize_metric_dates_in_history(pool: PgPool) {
+async fn user_reviews_metric_history(pool: PgPool) {
     create_user(&pool, "metric-history@example.com").await;
     let cookie = create_session(&pool, "metric-history@example.com").await;
     let chain_id = create_chain(&pool, &cookie, "integer").await;
@@ -101,7 +101,7 @@ async fn serialize_metric_dates_in_history(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn upsert_metric_with_device_token(pool: PgPool) {
+async fn device_records_integer_metric(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = create_session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
@@ -133,7 +133,7 @@ async fn upsert_metric_with_device_token(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn upsert_metric_replaces_same_date(pool: PgPool) {
+async fn user_corrects_metric_for_same_date(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = create_session(&pool, "t@t.com").await;
     let token = device_token(&pool, &cookie).await;
@@ -169,7 +169,7 @@ async fn upsert_metric_replaces_same_date(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_zero_empty_and_false_metric_values(pool: PgPool) {
+async fn user_cannot_record_zero_empty_or_false_metric_values(pool: PgPool) {
     create_user(&pool, "metric-validation@example.com").await;
     let cookie = create_session(&pool, "metric-validation@example.com").await;
     let token = device_token(&pool, &cookie).await;
@@ -272,7 +272,7 @@ async fn reject_zero_empty_and_false_metric_values(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn upsert_metric_rejects_foreign_chain(pool: PgPool) {
+async fn user_cannot_record_metric_for_another_users_chain(pool: PgPool) {
     create_user(&pool, "a@t.com").await;
     create_user(&pool, "b@t.com").await;
     let cookie_a = create_session(&pool, "a@t.com").await;
@@ -296,7 +296,7 @@ async fn upsert_metric_rejects_foreign_chain(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn upsert_metric_with_cookie_still_works(pool: PgPool) {
+async fn user_records_integer_metric(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = create_session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;
@@ -312,7 +312,7 @@ async fn upsert_metric_with_cookie_still_works(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn upsert_metric_without_auth_is_unauthorized(pool: PgPool) {
+async fn unauthenticated_user_cannot_record_metric(pool: PgPool) {
     create_user(&pool, "t@t.com").await;
     let cookie = create_session(&pool, "t@t.com").await;
     let chain_id = create_time_chain(&pool, &cookie).await;

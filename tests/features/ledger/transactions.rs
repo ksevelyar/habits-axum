@@ -16,7 +16,7 @@ fn build_history_request(cookie: &str, start_at: &str, end_at: &str) -> Request<
 }
 
 #[sqlx::test]
-async fn record_positive_work_income_in_kopecks(pool: PgPool) {
+async fn user_records_work_income(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-income@example.com", "Europe/Moscow").await;
     let application = build_application(&pool);
     let work_category = create_category(&application, &cookie, "Work").await;
@@ -33,7 +33,7 @@ async fn record_positive_work_income_in_kopecks(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn record_negative_home_spending_in_kopecks(pool: PgPool) {
+async fn user_records_home_spending(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-expense@example.com", "Europe/Moscow").await;
     let application = build_application(&pool);
     let home_category = create_category(&application, &cookie, "Home").await;
@@ -50,7 +50,7 @@ async fn record_negative_home_spending_in_kopecks(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_transaction_without_category_id(pool: PgPool) {
+async fn user_must_provide_category(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-no-category@example.com", "UTC").await;
     let application = build_application(&pool);
 
@@ -71,7 +71,7 @@ async fn reject_transaction_without_category_id(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_transaction_without_occurrence_time(pool: PgPool) {
+async fn user_must_provide_occurrence_timestamp(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-no-time@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -92,7 +92,7 @@ async fn reject_transaction_without_occurrence_time(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_zero_transaction_amount(pool: PgPool) {
+async fn user_cannot_submit_zero_amount(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-zero-amount@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -118,7 +118,7 @@ async fn reject_zero_transaction_amount(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_non_utc_transaction_timestamp(pool: PgPool) {
+async fn user_cannot_submit_timestamp_that_is_not_utc(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-non-utc@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -144,7 +144,7 @@ async fn reject_non_utc_transaction_timestamp(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_transaction_for_another_users_category(pool: PgPool) {
+async fn user_cannot_create_transaction_in_another_users_category(pool: PgPool) {
     let (_, owner_cookie) = create_authenticated_user(&pool, "ledger-foreign-category-owner@example.com", "UTC").await;
     let (_, another_cookie) = create_authenticated_user(&pool, "ledger-foreign-category-user@example.com", "UTC").await;
     let application = build_application(&pool);
@@ -168,7 +168,7 @@ async fn reject_transaction_for_another_users_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn update_ledger_transaction(pool: PgPool) {
+async fn user_updates_transaction(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-update@example.com", "UTC").await;
     let application = build_application(&pool);
     let food_category = create_category(&application, &cookie, "Food").await;
@@ -206,7 +206,7 @@ async fn update_ledger_transaction(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_update_without_a_required_transaction_field(pool: PgPool) {
+async fn user_must_provide_every_field_when_updating_transaction(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-update-missing-field@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -235,7 +235,7 @@ async fn reject_update_without_a_required_transaction_field(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_update_to_another_users_category(pool: PgPool) {
+async fn user_cannot_update_transaction_to_another_users_category(pool: PgPool) {
     let (_, owner_cookie) = create_authenticated_user(&pool, "ledger-update-category-owner@example.com", "UTC").await;
     let (_, another_cookie) = create_authenticated_user(&pool, "ledger-update-category-user@example.com", "UTC").await;
     let application = build_application(&pool);
@@ -271,7 +271,7 @@ async fn reject_update_to_another_users_category(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_zero_amount_when_updating_transaction(pool: PgPool) {
+async fn user_cannot_update_transaction_with_zero_amount(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-update-zero-amount@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -305,7 +305,7 @@ async fn reject_zero_amount_when_updating_transaction(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_non_utc_timestamp_when_updating_transaction(pool: PgPool) {
+async fn user_cannot_update_transaction_with_non_utc_timestamp(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-update-non-utc@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -339,7 +339,7 @@ async fn reject_non_utc_timestamp_when_updating_transaction(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn delete_ledger_transaction(pool: PgPool) {
+async fn user_deletes_transaction(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-transaction-delete@example.com", "UTC").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Food").await;
@@ -374,7 +374,7 @@ async fn delete_ledger_transaction(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn list_only_authenticated_users_transactions(pool: PgPool) {
+async fn user_lists_only_their_transactions(pool: PgPool) {
     let (_, owner_cookie) = create_authenticated_user(&pool, "ledger-transactions-owner@example.com", "UTC").await;
     let (_, another_cookie) = create_authenticated_user(&pool, "ledger-transactions-another@example.com", "UTC").await;
     let application = build_application(&pool);
@@ -413,7 +413,7 @@ async fn list_only_authenticated_users_transactions(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn return_explicit_utc_history_bounds(pool: PgPool) {
+async fn user_lists_explicit_utc_interval(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-utc-range@example.com", "Europe/London").await;
     let application = build_application(&pool);
 
@@ -429,7 +429,7 @@ async fn return_explicit_utc_history_bounds(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn include_transaction_at_start_and_exclude_transaction_at_end(pool: PgPool) {
+async fn user_sees_transactions_at_start_of_interval_but_not_end(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-exclusive-end@example.com", "Europe/London").await;
     let application = build_application(&pool);
     let category = create_category(&application, &cookie, "Work").await;
@@ -457,7 +457,7 @@ async fn include_transaction_at_start_and_exclude_transaction_at_end(pool: PgPoo
 }
 
 #[sqlx::test]
-async fn reject_invalid_ledger_history_bounds(pool: PgPool) {
+async fn user_cannot_list_transactions_with_invalid_interval_bounds(pool: PgPool) {
     let (_, cookie) = create_authenticated_user(&pool, "ledger-invalid-range@example.com", "UTC").await;
     let application = build_application(&pool);
     let invalid_ranges = [
@@ -501,7 +501,7 @@ async fn reject_invalid_ledger_history_bounds(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn require_authentication_for_ledger_transactions(pool: PgPool) {
+async fn unauthenticated_user_cannot_list_transactions(pool: PgPool) {
     let application = build_application(&pool);
     let response = send(
         &application,
