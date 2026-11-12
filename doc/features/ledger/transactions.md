@@ -316,3 +316,45 @@ Response, `401 Unauthorized`:
   "error": "unauthorized"
 }
 ```
+
+### 14. A user must provide every field when updating a transaction
+Request:
+```http
+PATCH /ledger/transactions/1
+Cookie: jwt=<jwt>
+```
+
+```json
+{"category_id": 1, "amount_kopecks": -1200}
+```
+
+Response, `422 Unprocessable Entity`: a field error for the missing `occurred_at`.
+
+### 15. A user cannot update a transaction to another user's category
+Request:
+```http
+PATCH /ledger/transactions/1
+Cookie: jwt=<jwt>
+```
+
+Response, `404 Not Found`:
+```json
+{
+  "error": "transaction not found"
+}
+```
+
+### 16. A user lists only their transactions
+Request:
+```http
+GET /ledger/transactions?start_at=...&end_at=...
+Cookie: jwt=<jwt>
+```
+
+Response, `200 OK`: only transactions whose category belongs to the signed-in user.
+
+### 17. A user sees transactions at the start of an interval but not the end
+Transactions at `start_at` are included, transactions at `end_at` are excluded.
+
+### 18. A user cannot list transactions with invalid interval bounds
+Invalid, non-UTC, or reversed `start_at` and `end_at` respond `400 Bad Request` with an error message for the offending bound.

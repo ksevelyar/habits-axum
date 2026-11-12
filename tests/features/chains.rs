@@ -16,7 +16,7 @@ async fn create_test_session(pool: &PgPool) -> String {
 }
 
 #[sqlx::test]
-async fn create_integer_chain(pool: PgPool) {
+async fn user_creates_chain(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -47,88 +47,28 @@ async fn create_integer_chain(pool: PgPool) {
     assert_eq!(body["description"], "kettlebell + pull ups");
     assert_eq!(body["order"], 5);
     assert!(body["inserted_at"].as_str().unwrap().ends_with('Z'));
-}
 
-#[sqlx::test]
-async fn create_float_chain(pool: PgPool) {
-    let cookie = create_test_session(&pool).await;
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-
-    let res = {
-        let mut req = post_json_without_cookie(
+    for (name, chain_type, aggregate) in [
+        ("weight", "float", "avg"),
+        ("meditation", "boolean", "sum"),
+        ("reading", "time", "sum"),
+    ] {
+        let mut request = post_json_without_cookie(
             "/chains",
-            json!({
-                "active": true,
-                "name": "weight",
-                "type": "float",
-                "aggregate": "avg",
-                "show_in_charts": true,
-            }),
+            json!({"active":true,"name":name,"type":chain_type,"aggregate":aggregate}),
         );
-        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-        app.ready().await.unwrap().call(req).await.unwrap()
-    };
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = read_json_body(res).await;
-    assert_eq!(body["type"], "float");
-    assert_eq!(body["show_in_charts"], true);
-    assert_eq!(body["name"], "weight");
-    assert_eq!(body["aggregate"], "avg");
+        request.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        let response = app.ready().await.unwrap().call(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let chain = read_json_body(response).await;
+        assert_eq!(chain["type"], chain_type);
+        assert_eq!(chain["name"], name);
+        assert_eq!(chain["aggregate"], aggregate);
+    }
 }
 
 #[sqlx::test]
-async fn create_boolean_chain(pool: PgPool) {
-    let cookie = create_test_session(&pool).await;
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-
-    let res = {
-        let mut req = post_json_without_cookie(
-            "/chains",
-            json!({
-                "active": true,
-                "name": "meditation",
-                "type": "boolean",
-                "aggregate": "sum",
-            }),
-        );
-        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-        app.ready().await.unwrap().call(req).await.unwrap()
-    };
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = read_json_body(res).await;
-    assert_eq!(body["type"], "boolean");
-    assert_eq!(body["name"], "meditation");
-}
-
-#[sqlx::test]
-async fn create_time_chain(pool: PgPool) {
-    let cookie = create_test_session(&pool).await;
-    let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
-
-    let res = {
-        let mut req = post_json_without_cookie(
-            "/chains",
-            json!({
-                "active": true,
-                "name": "reading",
-                "type": "time",
-                "aggregate": "sum",
-            }),
-        );
-        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
-        app.ready().await.unwrap().call(req).await.unwrap()
-    };
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = read_json_body(res).await;
-    assert_eq!(body["type"], "time");
-    assert_eq!(body["name"], "reading");
-}
-
-#[sqlx::test]
-async fn create_chain_with_invalid_payload(pool: PgPool) {
+async fn user_cannot_create_chain_with_invalid_input(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -146,7 +86,7 @@ async fn create_chain_with_invalid_payload(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn update_chain(pool: PgPool) {
+async fn user_enables_chain_in_charts(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -205,7 +145,7 @@ async fn update_chain(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn update_chain_with_invalid_payload(pool: PgPool) {
+async fn user_enables_chain_in_charts_with_invalid_payload(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -230,7 +170,7 @@ async fn update_chain_with_invalid_payload(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn delete_chain(pool: PgPool) {
+async fn user_deletes_chain(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -262,7 +202,7 @@ async fn delete_chain(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn show_chain(pool: PgPool) {
+async fn user_reads_chain(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -297,7 +237,7 @@ async fn show_chain(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn show_chains(pool: PgPool) {
+async fn user_reads_chains(pool: PgPool) {
     let cookie = create_test_session(&pool).await;
     let mut app = build_app(pool.clone(), None, Arc::new(SystemClock)).into_service();
 
@@ -332,4 +272,30 @@ async fn show_chains(pool: PgPool) {
     assert_eq!(list[1]["show_in_charts"], true);
     assert_eq!(list[2]["name"], "a");
     assert_eq!(list[2]["show_in_charts"], false);
+}
+
+#[sqlx::test]
+async fn user_cannot_read_another_users_chain(pool: PgPool) {
+    let owner_cookie = create_user_and_session(&pool, "owner@example.com", "x", "Europe/London", "owner").await;
+    let another_cookie = create_user_and_session(&pool, "another@example.com", "x", "Europe/London", "another").await;
+    let mut application = build_app(pool, None, Arc::new(SystemClock)).into_service();
+    let mut request = post_json_without_cookie(
+        "/chains",
+        json!({"active":true,"name":"private","type":"integer","aggregate":"sum"}),
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, owner_cookie.parse().unwrap());
+    let chain_id = read_json_body(application.ready().await.unwrap().call(request).await.unwrap()).await["id"]
+        .as_i64()
+        .unwrap();
+    let response = application
+        .ready()
+        .await
+        .unwrap()
+        .call(get_with_cookie(&format!("/chains/{chain_id}"), &another_cookie))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(read_json_body(response).await, json!({"error":"chain not found"}));
 }

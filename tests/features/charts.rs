@@ -31,7 +31,7 @@ async fn create_chain(pool: &PgPool, cookie: &str, name: &str, active: bool, sho
 }
 
 #[sqlx::test]
-async fn require_authentication_for_charts(pool: PgPool) {
+async fn unauthenticated_user_cannot_load_chart_history(pool: PgPool) {
     let mut app = build_app(pool, None, Arc::new(SystemClock)).into_service();
     let response = app
         .ready()
@@ -45,7 +45,7 @@ async fn require_authentication_for_charts(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn return_only_active_enabled_chains_for_the_authenticated_user(pool: PgPool) {
+async fn user_only_sees_their_active_enabled_chains(pool: PgPool) {
     create_user(&pool, "chart-owner@example.com").await;
     create_user(&pool, "chart-other-owner@example.com").await;
     let owner_cookie = create_session(&pool, "chart-owner@example.com").await;
@@ -79,7 +79,7 @@ async fn return_only_active_enabled_chains_for_the_authenticated_user(pool: PgPo
 }
 
 #[sqlx::test]
-async fn exclude_metrics_at_the_exclusive_end_date(pool: PgPool) {
+async fn user_does_not_see_metrics_at_end_of_chart_range(pool: PgPool) {
     create_user(&pool, "chart-history@example.com").await;
     let cookie = create_session(&pool, "chart-history@example.com").await;
     let chart_chain = create_chain(&pool, &cookie, "Pull-ups", true, true).await;
@@ -125,7 +125,7 @@ async fn exclude_metrics_at_the_exclusive_end_date(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reject_empty_or_reversed_chart_ranges(pool: PgPool) {
+async fn user_cannot_load_empty_or_reversed_chart_range(pool: PgPool) {
     create_user(&pool, "chart-invalid-range@example.com").await;
     let cookie = create_session(&pool, "chart-invalid-range@example.com").await;
     let mut app = build_app(pool, None, Arc::new(SystemClock)).into_service();
@@ -148,4 +148,62 @@ async fn reject_empty_or_reversed_chart_ranges(pool: PgPool) {
             json!({"error": "start_date must be before end_date"})
         );
     }
+}
+
+#[sqlx::test]
+async fn user_loads_one_month_of_chart_history(pool: PgPool) {
+    create_user(&pool, "month-history@example.com").await;
+    let cookie = create_session(&pool, "month-history@example.com").await;
+    let chain = create_chain(&pool, &cookie, "Pull-ups", true, true).await;
+    let chain_id = chain["id"].as_i64().unwrap();
+    for (metric_date, integer_value) in [
+        (Date::new(2026, 2, 28).unwrap(), 10),
+        (Date::new(2026, 3, 5).unwrap(), 20),
+        (Date::new(2026, 3, 7).unwrap(), 25),
+        (Date::new(2026, 4, 1).unwrap(), 30),
+    ] {
+        sqlx::query("INSERT INTO metrics (chain_id, date, value_integer) VALUES ($1, $2, $3)")
+            .bind(chain_id)
+            .bind(metric_date.to_sqlx())
+            .bind(integer_value)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let mut application = build_app(pool, None, Arc::new(SystemClock)).into_service();
+    let response = application
+        .ready()
+        .await
+        .unwrap()
+        .call(get_with_cookie(
+            "/charts?start_date=2026-03-01&end_date=2026-04-01",
+            &cookie,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        read_json_body(response).await["chains"][0]["points"],
+        json!([{"date":"2026-03-05","value":20.0},{"date":"2026-03-07","value":25.0}])
+    );
+}
+
+#[sqlx::test]
+async fn user_sees_no_chains_when_none_are_enabled(pool: PgPool) {
+    create_user(&pool, "no-charts@example.com").await;
+    let cookie = create_session(&pool, "no-charts@example.com").await;
+    create_chain(&pool, &cookie, "Disabled", true, false).await;
+    let mut application = build_app(pool, None, Arc::new(SystemClock)).into_service();
+    let response = application
+        .ready()
+        .await
+        .unwrap()
+        .call(get_with_cookie(
+            "/charts?start_date=2026-03-01&end_date=2026-04-01",
+            &cookie,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(read_json_body(response).await, json!({"chains":[]}));
 }

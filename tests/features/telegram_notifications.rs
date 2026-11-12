@@ -153,7 +153,7 @@ async fn wait_for_bot_message(mock: &MockTelegramApi, predicate: impl Fn(&i64, &
 }
 
 #[sqlx::test]
-async fn linking_chat_via_bot_code_sets_chat_id(pool: PgPool) {
+async fn user_links_telegram_chat_with_bot_code(pool: PgPool) {
     let (mock_addr, mock) = spawn_mock_telegram_api().await;
     let app_addr = start_app_with_mock_telegram_api(pool.clone(), &format!("http://{mock_addr}")).await;
     let base = format!("http://{app_addr}");
@@ -181,7 +181,7 @@ async fn linking_chat_via_bot_code_sets_chat_id(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn unlinking_chat_clears_chat_id(pool: PgPool) {
+async fn user_unlinks_telegram_chat(pool: PgPool) {
     let (mock_addr, mock) = spawn_mock_telegram_api().await;
     let app_addr = start_app_with_mock_telegram_api(pool.clone(), &format!("http://{mock_addr}")).await;
     let base = format!("http://{app_addr}");
@@ -215,7 +215,7 @@ async fn unlinking_chat_clears_chat_id(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn cron_task_reminder_reaches_linked_chat(pool: PgPool) {
+async fn user_receives_active_reminder_in_linked_telegram_chat(pool: PgPool) {
     let (mock_addr, mock) = spawn_mock_telegram_api().await;
     let app_addr = start_app_with_mock_telegram_api(pool.clone(), &format!("http://{mock_addr}")).await;
     let base = format!("http://{app_addr}");
@@ -237,4 +237,72 @@ async fn cron_task_reminder_reaches_linked_chat(pool: PgPool) {
         *chat_id == CHAT_ID && text.contains("Drink water")
     })
     .await;
+}
+
+#[sqlx::test]
+async fn user_checks_telegram_link_status(pool: PgPool) {
+    let (mock_address, _) = spawn_mock_telegram_api().await;
+    let application_address = start_app_with_mock_telegram_api(pool, &format!("http://{mock_address}")).await;
+    let base_url = format!("http://{application_address}");
+    let client = reqwest::Client::new();
+    let cookie = create_user_session(&client, &base_url).await;
+    let response = client
+        .get(format!("{base_url}/telegram/link"))
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.json::<Value>().await.unwrap(), json!({"linked":false}));
+}
+
+#[sqlx::test]
+async fn user_requests_telegram_link(pool: PgPool) {
+    let (mock_address, _) = spawn_mock_telegram_api().await;
+    let application_address = start_app_with_mock_telegram_api(pool.clone(), &format!("http://{mock_address}")).await;
+    let base_url = format!("http://{application_address}");
+    let client = reqwest::Client::new();
+    let cookie = create_user_session(&client, &base_url).await;
+    let response = client
+        .post(format!("{base_url}/telegram/link"))
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let url = response.json::<Value>().await.unwrap()["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(url.starts_with("https://t.me/habits_test_bot?start="));
+    let (link_code,): (Option<String>,) = sqlx::query_as("SELECT telegram_code FROM users WHERE email = $1")
+        .bind("telegram@test.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(url.split("?start=").nth(1), link_code.as_deref());
+}
+
+#[sqlx::test]
+async fn user_receives_error_when_telegram_configuration_is_unavailable(pool: PgPool) {
+    let application = build_app(pool.clone(), None, Arc::new(SystemClock));
+    let client = reqwest::Client::new();
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(axum::serve(listener, application).into_future());
+    let base_url = format!("http://{address}");
+    let cookie = create_user_session(&client, &base_url).await;
+    let response = client
+        .get(format!("{base_url}/telegram/link"))
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"error":"telegram is not configured"})
+    );
 }

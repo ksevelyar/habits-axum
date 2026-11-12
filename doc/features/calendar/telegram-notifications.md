@@ -45,3 +45,18 @@ Response, `503 Service Unavailable`:
   "error": "telegram is not configured"
 }
 ```
+
+### 4. A user links a Telegram chat with a bot code
+The user submits `/link <code>` to the bot in their chat, the app stores the chat id and replies "Linked ✓".
+
+### 5. A user unlinks a Telegram chat
+Request:
+```http
+DELETE /telegram/link
+Cookie: jwt=<jwt>
+```
+
+Response, `204 No Content`: the stored chat id is cleared.
+
+### 6. A user receives an active reminder in a linked Telegram chat
+When a cron task fires for a linked user, the bot sends the task name to the linked chat.

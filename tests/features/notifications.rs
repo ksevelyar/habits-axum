@@ -43,7 +43,7 @@ async fn insert_user(pool: &PgPool) {
 }
 
 #[sqlx::test]
-async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
+async fn user_connects_to_notifications_with_cookie(pool: PgPool) {
     insert_user(&pool).await;
 
     let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
@@ -72,7 +72,7 @@ async fn authenticate_with_valid_jwt_via_cookie(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
+async fn user_connects_to_notifications(pool: PgPool) {
     insert_user(&pool).await;
 
     let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
@@ -101,7 +101,7 @@ async fn authenticate_with_valid_jwt_via_bearer(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn sends_last_notification_on_connect(pool: PgPool) {
+async fn user_receives_last_due_task_reminder_when_connecting(pool: PgPool) {
     let fixed_time: Timestamp = "2025-01-08T17:00:00Z".parse().unwrap();
     insert_user_with_timezone(&pool, "Europe/Moscow").await;
 
@@ -174,7 +174,7 @@ async fn sends_last_notification_on_connect(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn authenticate_with_invalid_jwt(pool: PgPool) {
+async fn user_cannot_connect_to_notifications_with_invalid_token(pool: PgPool) {
     let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
         .await
         .unwrap();
@@ -190,7 +190,7 @@ async fn authenticate_with_invalid_jwt(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn send_three_cron_reminders(pool: PgPool) {
+async fn user_receives_reminders_for_all_due_active_tasks(pool: PgPool) {
     insert_user(&pool).await;
 
     let jwt = authentication::encode_jwt("test@test.com".to_string()).unwrap();
