@@ -6,12 +6,24 @@ use cookie::Cookie;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tower::ServiceExt;
+use tracing_subscriber::EnvFilter;
 
 use habits_axum::authentication::encode_jwt;
 use habits_axum::build_app;
 use habits_axum::clock::SystemClock;
+
+pub fn initialize_test_tracing() {
+    static TEST_TRACING_INITIALIZER: Once = Once::new();
+
+    TEST_TRACING_INITIALIZER.call_once(|| {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("error")))
+            .with_test_writer()
+            .init();
+    });
+}
 
 pub async fn read_json_body(response: Response<Body>) -> Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -38,6 +50,7 @@ pub async fn create_authenticated_user(pool: &PgPool, email: &str, timezone: &st
 }
 
 pub fn build_application(pool: &PgPool) -> Router {
+    initialize_test_tracing();
     build_app(pool.clone(), None, Arc::new(SystemClock))
 }
 
