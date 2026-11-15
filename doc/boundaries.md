@@ -1,3 +1,6 @@
+## Style
+* prefer expect over unwrap to document invariant
+
 ## Tests
 * Only feature tests allowed
 * Flow for adding feature is to add requirements, write user scenarios for this requirements, then add feature tests for these scenarios
