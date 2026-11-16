@@ -18,6 +18,12 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "chains",
+            "name": "type"
+          }
         }
       }
     ],
