@@ -1,5 +1,6 @@
 ## Style
 * prefer expect over unwrap to document invariant
+* rust edition is 2024, mod.rs forbidden
 
 ## Tests
 * Only feature tests allowed
