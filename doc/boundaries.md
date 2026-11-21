@@ -1,3 +1,6 @@
+## Documentation
+* Requirements must not include implementation details.
+
 ## Style
 * prefer expect over unwrap to document invariant
 * rust edition is 2024, mod.rs forbidden
